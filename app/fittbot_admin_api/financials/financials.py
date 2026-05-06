@@ -86,11 +86,20 @@ async def get_active_users_count(
 
 
 async def get_total_users_count(
-    db: AsyncSession
+    db: AsyncSession,
+    start_date=None,
+    end_date=None
 ):
     try:
-        # Total users: absolute count of all clients
+        conditions = []
+        if start_date:
+            conditions.append(func.date(Client.created_at) >= start_date)
+        if end_date:
+            conditions.append(func.date(Client.created_at) <= end_date)
+
         count_query = select(func.count()).select_from(Client)
+        if conditions:
+            count_query = count_query.where(and_(*conditions))
         count_result = await db.execute(count_query)
         total_users_count = count_result.scalar() or 0
         return int(total_users_count)
@@ -316,7 +325,7 @@ async def get_financials_overview(
         total_expenses = await get_total_expenses(db, start_date_obj, end_date_obj)
 
         # Get Total Users for ARPU calculation
-        total_users_count = await get_total_users_count(db)
+        total_users_count = await get_total_users_count(db, start_date_obj, end_date_obj)
         
         active_users_count = await get_active_users_count(db, start_date_obj, end_date_obj)
         paying_users_count = await get_paying_users_count(db, start_date_obj, end_date_obj)
