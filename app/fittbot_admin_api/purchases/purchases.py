@@ -16,6 +16,7 @@ from app.models.dailypass_models import DailyPass, DailyPassDay
 from app.fittbot_api.v1.payments.models.payments import Payment
 from app.fittbot_api.v1.payments.models.orders import Order, OrderItem
 from app.fittbot_api.v1.payments.models.subscriptions import Subscription
+from app.fittbot_api.v1.payments.models.entitlements import Entitlement
 
 router = APIRouter(prefix="/api/admin/purchases", tags=["AdminPurchases"])
 
@@ -1621,6 +1622,7 @@ async def get_gym_memberships(
         # Fetch order items to get gym_ids (exclude gym_id = 1)
         order_gym_mapping = {}
         order_gym_id_mapping = {}  # Store actual gym_id values
+        order_item_id_mapping = {}  # Store mapping from order_id to order_item_id for entitlement lookup
         if order_ids:
             order_items_stmt = (
                 select(OrderItem)
@@ -1631,11 +1633,29 @@ async def get_gym_memberships(
             order_items_result = await db.execute(order_items_stmt)
             order_items = order_items_result.scalars().all()
 
-            # Create mapping from order_id to gym_id
+            # Create mapping from order_id to gym_id and order_item_id
             for item in order_items:
                 if item.gym_id and item.gym_id.strip() and item.gym_id.isdigit():
                     order_gym_mapping[item.order_id] = int(item.gym_id)
                     order_gym_id_mapping[item.order_id] = item.gym_id
+                    order_item_id_mapping[item.order_id] = item.id
+
+            # Fetch entitlements for these order_items to get status, joined_at, expire_at
+            order_item_ids = [item.id for item in order_items]
+            entitlements_mapping = {}
+            if order_item_ids:
+                entitlements_stmt = (
+                    select(Entitlement)
+                    .where(Entitlement.order_item_id.in_(order_item_ids))
+                )
+                entitlements_result = await db.execute(entitlements_stmt)
+                entitlements = entitlements_result.scalars().all()
+                for ent in entitlements:
+                    entitlements_mapping[ent.order_item_id] = {
+                        "status": ent.status,
+                        "joined_at": ent.active_from,
+                        "expire_at": ent.active_until
+                    }
 
         # Filter by metadata conditions and collect valid orders
         valid_orders = []
@@ -1779,6 +1799,10 @@ async def get_gym_memberships(
                     owner_name = owner.name or "N/A"
                     owner_contact = owner.contact_number
 
+            # Get entitlement data for this order
+            order_item_id = order_item_id_mapping.get(order.id)
+            entitlement_data = entitlements_mapping.get(order_item_id, {}) if order_item_id else {}
+
             memberships.append({
                 "id": order.id,
                 "client_name": client_name,
@@ -1791,7 +1815,10 @@ async def get_gym_memberships(
                 "owner_name": owner_name,
                 "gym_area": gym_area,
                 "client_contact": client_contact,
-                "platform": client.platform
+                "platform": client.platform,
+                "status": entitlement_data.get("status"),
+                "joined_at": entitlement_data.get("joined_at"),
+                "expire_at": entitlement_data.get("expire_at")
             })
 
         # Apply search filter if search term is provided
