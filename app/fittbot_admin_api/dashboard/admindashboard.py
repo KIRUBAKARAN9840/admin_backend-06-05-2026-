@@ -38,30 +38,28 @@ router = APIRouter(prefix="/api/admin/dashboard", tags=["AdminDashboard"])
 async def get_monthly_active_users(db: AsyncSession, today: datetime.date) -> int:
     """
     Get count of distinct client_ids from active_users table
-    where created_at is within the last 30 days
-    Only include client_ids that have at least 2 rows with different dates
-    Each qualifying client_id counts as 1
+    where created_at is within the last 30 days.
+    Requires only 1+ login (same logic as /users-stats Active Users).
+    Excludes users from gym_id = 1.
     """
     try:
-        # Calculate date 30 days ago
         thirty_days_ago = today - timedelta(days=30)
         end_date_inclusive = today + timedelta(days=1)
 
-        # Subquery: Find client_ids that have at least 2 distinct dates in the last 30 days
-        subquery = select(ActiveUser.client_id).where(
+        active_subquery = select(ActiveUser.client_id).join(
+            Client, ActiveUser.client_id == Client.client_id
+        ).where(
             and_(
                 ActiveUser.created_at >= thirty_days_ago,
-                ActiveUser.created_at < end_date_inclusive
+                ActiveUser.created_at < end_date_inclusive,
+                or_(Client.gym_id != 1, Client.gym_id.is_(None))
             )
-        ).group_by(
-            ActiveUser.client_id
-        ).having(
-            func.count(func.distinct(func.date(ActiveUser.created_at))) >= 2
         )
 
-        # Main query: Count distinct client_ids (each qualifying client = 1)
-        stmt = select(func.coalesce(func.count(distinct(ActiveUser.client_id)), 0)).where(
-            ActiveUser.client_id.in_(subquery)
+        stmt = select(
+            func.coalesce(func.count(func.distinct(ActiveUser.client_id)), 0)
+        ).where(
+            ActiveUser.client_id.in_(active_subquery)
         )
 
         result = await db.execute(stmt)

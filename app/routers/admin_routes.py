@@ -32,6 +32,10 @@ from app.fittbot_admin_api.cash_flow.cash_flow import router as admin_cash_flow_
 from app.fittbot_admin_api.financials.financials import router as financials_router
 from app.fittbot_admin_api.unverified_gyms import unverified_gyms
 from app.fittbot_admin_api.verified_gyms import verified_gyms
+from app.fittbot_admin_api.nutritionist_sessions import router as nutritionist_sessions_router
+from app.fittbot_admin_api.nutritionist_sessions.client_details import router as nutritionist_client_details_router
+from app.fittbot_admin_api.nutritionist_sessions.completed_list import router as nutritionist_completed_list_router
+from app.fittbot_admin_api.nutritionist_sessions.diet_templates import router as nutritionist_diet_templates_router
 
 # ── Collector ───────────────────────────────────────────────────────
 router = APIRouter()
@@ -68,3 +72,7 @@ router.include_router(admin_cash_flow_router)
 
 router.include_router(unverified_gyms.router)
 router.include_router(verified_gyms.router)
+router.include_router(nutritionist_sessions_router)
+router.include_router(nutritionist_client_details_router)
+router.include_router(nutritionist_completed_list_router)
+router.include_router(nutritionist_diet_templates_router)
