@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, cast, String, or_, and_, desc, union, union_all, literal, over, distinct
+from sqlalchemy import select, func, cast, String, or_, and_, desc, union, union_all, literal, over, distinct, exists
 from app.models.async_database import get_async_db
 from app.models.telecaller_models import Telecaller, UserConversion, ClientCallFeedback, ConvertedBy
 from app.models.fittbot_models import Client, Gym, GymOwner, SessionPurchase, FittbotGymMembership
@@ -138,10 +138,11 @@ async def get_telecaller_total_revenue(telecaller_id: int, db: AsyncSession) -> 
 
     Logic:
     1. Get all unique client_ids converted by this telecaller
-    2. Join payments -> order_items
-    3. Filter gym_id != '1'
-    4. Sum amount_minor from payments
-    5. Convert to rupees by dividing by 100
+    2. For each captured payment, check if its order has qualifying order_items
+    3. Use EXISTS to avoid payment duplication from multiple order_items
+    4. A payment is included if its order has at least one order_item with (gym_id != '1' OR gym_id IS NULL)
+    5. Sum amount_minor from qualifying payments
+    6. Convert to rupees by dividing by 100
     """
     try:
         # Get unique converted client_ids from both UserConversion and ClientCallFeedback
@@ -163,24 +164,19 @@ async def get_telecaller_total_revenue(telecaller_id: int, db: AsyncSession) -> 
             combined.c.client_id
         ).distinct().subquery()
 
-        # Calculate total revenue: payments -> order_items with gym_id != '1'
-        # Join: Payment -> Order -> OrderItem
-        # Filter: gym_id != '1'
-        # Sum: amount_minor from Payment
-
+        # Calculate total revenue using EXISTS to avoid payment duplication
+        # A payment is included if its order has at least one qualifying order_item
         revenue_stmt = select(
             func.coalesce(func.sum(Payment.amount_minor), 0)
-        ).join(
-            Order, Order.id == Payment.order_id
-        ).join(
-            OrderItem, OrderItem.order_id == Order.id
         ).join(
             distinct_clients, distinct_clients.c.client_id == Payment.customer_id
         ).where(
             Payment.status == "captured",
-            or_(
-                OrderItem.gym_id != '1',
-                OrderItem.gym_id.is_(None)
+            exists(
+                select(1).select_from(OrderItem).where(
+                    OrderItem.order_id == Payment.order_id,
+                    or_(OrderItem.gym_id != '1', OrderItem.gym_id.is_(None))
+                )
             )
         )
 
@@ -188,7 +184,6 @@ async def get_telecaller_total_revenue(telecaller_id: int, db: AsyncSession) -> 
         total_amount_minor = result.scalar() or 0
 
         # Convert from minor to major (paise to rupees)
-        # Convert to float first, then divide by 100
         total_revenue = float(total_amount_minor) / 100
 
         return total_revenue
@@ -470,23 +465,33 @@ async def get_telecallers_with_conversion_count(
             combined_for_revenue.c.client_id
         ).distinct().subquery()
 
-        # Calculate revenue by joining with payments and order_items
-        # Join: distinct_client_telecaller -> Payment -> Order -> OrderItem
-        revenue_query = select(
-            distinct_client_telecaller.c.telecaller_id,
-            func.coalesce(func.sum(Payment.amount_minor), 0).label('amount_minor'),
-            func.count(distinct(Payment.id)).label('bookings_count')
-        ).join(
-            Payment, Payment.customer_id == distinct_client_telecaller.c.client_id
-        ).join(
-            Order, Order.id == Payment.order_id
-        ).join(
-            OrderItem, OrderItem.order_id == Order.id
+        # Get distinct captured payments for these clients (avoid duplication from order_items join)
+        payment_subq = select(
+            Payment.id,
+            Payment.customer_id,
+            Payment.amount_minor,
+            Payment.order_id
         ).where(
             Payment.status == "captured",
-            or_(
-                OrderItem.gym_id != '1',
-                OrderItem.gym_id.is_(None)
+            Payment.customer_id.in_(
+                select(distinct_client_telecaller.c.client_id).distinct()
+            )
+        ).distinct().subquery()
+
+        # Calculate revenue using EXISTS to filter by gym_id without duplicating payment amounts
+        # Use EXISTS instead of JOIN with OrderItem to avoid row multiplication
+        revenue_query = select(
+            distinct_client_telecaller.c.telecaller_id,
+            func.coalesce(func.sum(payment_subq.c.amount_minor), 0).label('amount_minor'),
+            func.count(payment_subq.c.id).label('bookings_count')
+        ).join(
+            payment_subq, payment_subq.c.customer_id == distinct_client_telecaller.c.client_id
+        ).where(
+            exists(
+                select(1).select_from(OrderItem).where(
+                    OrderItem.order_id == payment_subq.c.order_id,
+                    or_(OrderItem.gym_id != '1', OrderItem.gym_id.is_(None))
+                )
             )
         ).group_by(distinct_client_telecaller.c.telecaller_id)
 
