@@ -702,6 +702,95 @@ async def get_all_purchases(
         )
 
 
+@router.get("/booking-count")
+async def get_booking_count(
+    date_filter: Optional[str] = Query(default="today"),
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get booking count with date filter."""
+    from datetime import datetime, timezone, timedelta
+    import calendar
+
+    try:
+        IST = timezone(timedelta(hours=5, minutes=30))
+        now = datetime.now(IST)
+        today = now.date()
+
+        if date_filter == "yesterday":
+            yesterday = today - timedelta(days=1)
+            start_datetime = datetime.combine(yesterday, datetime.min.time()).replace(tzinfo=IST)
+            end_datetime = datetime.combine(yesterday, datetime.max.time()).replace(tzinfo=IST)
+        elif date_filter == "last7days":
+            start_datetime = datetime.combine(today - timedelta(days=6), datetime.min.time()).replace(tzinfo=IST)
+            end_datetime = datetime.combine(today, datetime.max.time()).replace(tzinfo=IST)
+        elif date_filter == "current_month":
+            start_datetime = datetime.combine(today.replace(day=1), datetime.min.time()).replace(tzinfo=IST)
+            last_day = calendar.monthrange(today.year, today.month)[1]
+            end_datetime = datetime.combine(today.replace(day=last_day), datetime.max.time()).replace(tzinfo=IST)
+        elif date_filter == "last_month":
+            if today.month == 1:
+                first_day = today.replace(month=12, day=1, year=today.year - 1)
+            else:
+                first_day = today.replace(month=today.month - 1, day=1)
+            last_day = calendar.monthrange(first_day.year, first_day.month)[1]
+            end_datetime = datetime.combine(first_day.replace(day=last_day), datetime.max.time()).replace(tzinfo=IST)
+            start_datetime = datetime.combine(first_day, datetime.min.time()).replace(tzinfo=IST)
+        elif date_filter == "overall":
+            start_datetime = datetime(2020, 1, 1).replace(tzinfo=IST)
+            end_datetime = datetime.combine(today, datetime.max.time()).replace(tzinfo=IST)
+        elif date_filter == "custom" and start_time and end_time:
+            start_datetime = datetime.fromisoformat(start_time.replace('Z', '+00:00')).replace(tzinfo=IST)
+            end_datetime = datetime.fromisoformat(end_time.replace('Z', '+00:00')).replace(tzinfo=IST)
+        else:
+            start_datetime = datetime.combine(today, datetime.min.time()).replace(tzinfo=IST)
+            end_datetime = datetime.combine(today, datetime.max.time()).replace(tzinfo=IST)
+
+        # Count DailyPass bookings (sum of days_total)
+        daily_pass_query = (
+            select(func.coalesce(func.sum(DailyPass.days_total), 0))
+            .select_from(DailyPass)
+            .join(Gym, cast(DailyPass.gym_id, Integer) == Gym.gym_id)
+            .where(DailyPass.gym_id != "1")
+            .where(DailyPass.created_at >= start_datetime)
+            .where(DailyPass.created_at <= end_datetime)
+        )
+
+        # Count SessionPurchase bookings (sum of sessions_count, only paid status)
+        session_query = (
+            select(func.coalesce(func.sum(SessionPurchase.sessions_count), 0))
+            .select_from(SessionPurchase)
+            .join(Gym, SessionPurchase.gym_id == Gym.gym_id)
+            .where(SessionPurchase.status == "paid")
+            .where(SessionPurchase.gym_id != 1)
+            .where(SessionPurchase.created_at >= start_datetime)
+            .where(SessionPurchase.created_at <= end_datetime)
+        )
+
+        daily_pass_count = (await db.execute(daily_pass_query)).scalar() or 0
+        session_count = (await db.execute(session_query)).scalar() or 0
+        total_count = int(daily_pass_count) + int(session_count)
+
+        return {
+            "success": True,
+            "data": {
+                "booking_count": total_count
+            },
+            "message": "Booking count fetched successfully"
+        }
+
+    except Exception as e:
+        import logging
+        logging.error(f"[BOOKING-COUNT] Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": f"Failed to fetch booking count: {str(e)}"
+        }
+
+
 async def compute_gmv_totals(db: AsyncSession, start_date_obj, end_date_obj):
     """
     Shared GMV aggregation helper.
