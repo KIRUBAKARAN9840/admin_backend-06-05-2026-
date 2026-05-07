@@ -519,6 +519,83 @@ async def get_telecallers_with_conversion_count(
         raise Exception(f"Failed to fetch telecallers: {str(e)}")
 
 
+@router.get("/{manager_id}/telecallers/{telecaller_id}/call-count")
+async def get_telecaller_call_count(
+    manager_id: int,
+    telecaller_id: int,
+    date_filter: Optional[str] = Query(default="today"),
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get call count for a telecaller from ClientCallFeedback table."""
+    from datetime import datetime, timezone, timedelta
+    import calendar
+
+    try:
+        IST = timezone(timedelta(hours=5, minutes=30))
+        now = datetime.now(IST)
+        today = now.date()
+
+        if date_filter == "yesterday":
+            yesterday = today - timedelta(days=1)
+            start_datetime = datetime.combine(yesterday, datetime.min.time()).replace(tzinfo=IST)
+            end_datetime = datetime.combine(yesterday, datetime.max.time()).replace(tzinfo=IST)
+        elif date_filter == "last7days":
+            start_datetime = datetime.combine(today - timedelta(days=6), datetime.min.time()).replace(tzinfo=IST)
+            end_datetime = datetime.combine(today, datetime.max.time()).replace(tzinfo=IST)
+        elif date_filter == "current_month":
+            start_datetime = datetime.combine(today.replace(day=1), datetime.min.time()).replace(tzinfo=IST)
+            last_day = calendar.monthrange(today.year, today.month)[1]
+            end_datetime = datetime.combine(today.replace(day=last_day), datetime.max.time()).replace(tzinfo=IST)
+        elif date_filter == "last_month":
+            if today.month == 1:
+                first_day = today.replace(month=12, day=1, year=today.year - 1)
+            else:
+                first_day = today.replace(month=today.month - 1, day=1)
+            last_day = calendar.monthrange(first_day.year, first_day.month)[1]
+            end_datetime = datetime.combine(first_day.replace(day=last_day), datetime.max.time()).replace(tzinfo=IST)
+            start_datetime = datetime.combine(first_day, datetime.min.time()).replace(tzinfo=IST)
+        elif date_filter == "overall":
+            start_datetime = datetime(2020, 1, 1).replace(tzinfo=IST)
+            end_datetime = datetime.combine(today, datetime.max.time()).replace(tzinfo=IST)
+        elif date_filter == "custom" and start_time and end_time:
+            start_datetime = datetime.fromisoformat(start_time.replace('Z', '+00:00')).replace(tzinfo=IST)
+            end_datetime = datetime.fromisoformat(end_time.replace('Z', '+00:00')).replace(tzinfo=IST)
+        else:
+            start_datetime = datetime.combine(today, datetime.min.time()).replace(tzinfo=IST)
+            end_datetime = datetime.combine(today, datetime.max.time()).replace(tzinfo=IST)
+
+        count_stmt = select(
+            func.count(ClientCallFeedback.id)
+        ).where(
+            and_(
+                ClientCallFeedback.executive_id == telecaller_id,
+                ClientCallFeedback.created_at >= start_datetime,
+                ClientCallFeedback.created_at <= end_datetime
+            )
+        )
+        count_result = await db.execute(count_stmt)
+        call_count = count_result.scalar() or 0
+
+        return {
+            "success": True,
+            "data": {
+                "call_count": call_count
+            },
+            "message": "Call count fetched successfully"
+        }
+
+    except Exception as e:
+        print(f"[TELECALLER-CALL-COUNT] Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": f"Failed to fetch call count: {str(e)}"
+        }
+
+
 @router.get("/telecallers/{telecaller_id}/converted-clients")
 async def get_telecaller_converted_clients(
     telecaller_id: int,

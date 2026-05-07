@@ -39,6 +39,26 @@ async def get_all_purchases(
         # Parse dates if provided
         start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
         end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else None
+        today = datetime.now().date()
+
+        today_daily_pass_query = (
+            select(func.coalesce(func.sum(DailyPass.days_total), 0))
+            .select_from(DailyPass)
+            .join(Gym, cast(DailyPass.gym_id, Integer) == Gym.gym_id)
+            .where(DailyPass.gym_id != "1")
+            .where(func.date(DailyPass.created_at) == today)
+        )
+        today_session_query = (
+            select(func.coalesce(func.sum(SessionPurchase.sessions_count), 0))
+            .select_from(SessionPurchase)
+            .join(Gym, SessionPurchase.gym_id == Gym.gym_id)
+            .where(SessionPurchase.status == "paid")
+            .where(SessionPurchase.gym_id != 1)
+            .where(func.date(SessionPurchase.created_at) == today)
+        )
+        today_daily_pass_count = (await db.execute(today_daily_pass_query)).scalar() or 0
+        today_session_count = (await db.execute(today_session_query)).scalar() or 0
+        today_bookings = int(today_daily_pass_count) + int(today_session_count)
 
         # Build DailyPass subquery with type label
         daily_pass_query = (
@@ -297,7 +317,8 @@ async def get_all_purchases(
                         "totalPages": 0,
                         "hasNext": False,
                         "hasPrev": False
-                    }
+                    },
+                    "todayBookings": today_bookings
                 }
             }
 
@@ -665,7 +686,8 @@ async def get_all_purchases(
                     "hasPrev": has_prev
                 },
                 "distinctClients": final_distinct_clients,
-                "distinctGyms": final_distinct_gyms
+                "distinctGyms": final_distinct_gyms,
+                "todayBookings": today_bookings
             }
         }
 
