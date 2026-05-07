@@ -704,8 +704,7 @@ async def get_mrr_revenue_breakdown(
     daily_pass = await get_daily_pass_revenue(db, target_month_start, target_month_end, exclude_gym_id_one)
     sessions = await get_sessions_revenue(db, target_month_start, target_month_end, exclude_gym_id_one)
     fittbot_subscription = await get_amortized_fittbot_subscription_revenue(db, target_month_start, target_month_end, exclude_gym_id_one)
-    gym_membership = await get_gym_membership_revenue(db, target_month_start, target_month_end, exclude_gym_id_one)
-    # gym_membership = await get_amortized_gym_membership_revenue(db, target_month_start, target_month_end, exclude_gym_id_one)
+    gym_membership = await get_amortized_gym_membership_revenue(db, target_month_start, target_month_end, exclude_gym_id_one)
     ai_credits = await get_ai_credits_revenue(db, target_month_start, target_month_end, exclude_gym_id_one)
 
     total_revenue = float(daily_pass) + float(sessions) + fittbot_subscription + gym_membership + float(ai_credits)
