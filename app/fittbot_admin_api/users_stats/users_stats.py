@@ -111,8 +111,8 @@ async def get_users_stats(
 
         # Query 3: Count distinct customer_id from payments table (paying users)
         # Exclude payments associated with gym_id = 1 and internal/test contacts
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956"]
-        
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+
         paying_filters = [
             Payment.status == "captured",
             OrderItem.gym_id.isnot(None),

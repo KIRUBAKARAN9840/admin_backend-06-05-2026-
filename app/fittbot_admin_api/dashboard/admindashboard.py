@@ -78,8 +78,8 @@ async def get_total_paying_users(db: AsyncSession) -> int:
     excluding test gym data (gym_id = 1) and internal test accounts.
     """
     try:
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956"]
-        
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+
         # Count distinct customer_id from successful payments, excluding test gym 1
         stmt = (
             select(func.count(distinct(Payment.customer_id)))
@@ -505,7 +505,7 @@ async def get_plans_metrics(db: AsyncSession):
     where payment_metadata['flow'] = 'nutrition_purchase_googleplay' or 'nutrition_package_razorpay'
     """
     # EXCLUDED_CONTACTS for test/internal accounts
-    EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956"]
+    EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
 
     # Nutritionist Plans - count payments where flow = 'nutrition_purchase_googleplay' or 'nutrition_package_razorpay'
     # Exclude internal/test contacts to match the inner page logic
@@ -2224,7 +2224,7 @@ async def get_purchase_analytics(
         # 3. NUTRITIONIST PLAN (FITTBOT SUBSCRIPTION) PURCHASES
         # GMV fix: added excluded contacts filter to match gmv-summary logic
         # NOTE: Skip when gym filter is applied (not gym-specific purchases)
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956"]
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
         if (not source or source == "fittbot_subscription") and not gym_id:
             try:
                 nutritionist_stmt = (
@@ -2604,7 +2604,7 @@ async def get_purchase_analytics(
         # Sums revenue from all 5 sources grouped by Gym.city
         revenue_by_city = []
         try:
-            EXCLUDED_CONTACTS_SET = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956"]
+            EXCLUDED_CONTACTS_SET = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
             city_revenue_map = {}  # city -> total_revenue (rupees)
 
             # ── 1. Daily Pass ────────────────────────────────────────────────────
@@ -2962,7 +2962,7 @@ async def get_booking_averages(
             # Filter: payment_metadata['flow'] == 'nutrition_purchase_googleplay' or 'nutrition_package_razorpay'
             # Exclude internal/test contacts: 7373675762, 9486987082, 8667458723
             try:
-                EXCLUDED_CONTACTS_NUTRI = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956"]
+                EXCLUDED_CONTACTS_NUTRI = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
                 subscription_start = datetime.combine(start_date, datetime.min.time())
                 subscription_end = datetime.combine(end_date, datetime.min.time()).replace(hour=23, minute=59, second=59)
 
@@ -2992,7 +2992,7 @@ async def get_booking_averages(
             # Filter: payment_metadata['flow'] == 'food_scanner_credits' or 'food_scanner_credits_razorpay'
             # Exclude internal/test contacts: 7373675762, 9486987082, 8667458723
             try:
-                EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956"]
+                EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
                 ai_start = datetime.combine(start_date, datetime.min.time())
                 ai_end = datetime.combine(end_date, datetime.min.time()).replace(hour=23, minute=59, second=59)
 

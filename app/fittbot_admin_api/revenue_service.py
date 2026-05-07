@@ -226,7 +226,7 @@ async def get_fittbot_subscription_revenue(
         Revenue in PAISA (amount_minor is already in minor units)
     """
     try:
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956"]
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
         stmt = (
             select(func.coalesce(func.sum(Payment.amount_minor), 0))
             .select_from(Payment)
@@ -414,7 +414,7 @@ async def get_ai_credits_revenue(
     total_revenue = 0
 
     try:
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956"]
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
         stmt = (
             select(func.coalesce(func.sum(Payment.amount_minor), 0))
             .select_from(Payment)
@@ -473,7 +473,7 @@ async def get_amortized_fittbot_subscription_revenue(
     total_revenue = 0.0
 
     try:
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956"]
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
         stmt = (
             select(func.coalesce(func.sum(Payment.amount_minor), 0))
             .select_from(Payment)
@@ -989,7 +989,7 @@ async def _get_fittbot_subscription_detailed(
     - Sum amount_minor values
     """
     try:
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956"]
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
         stmt = (
             select(
                 Payment.amount_minor,
@@ -1133,7 +1133,7 @@ async def _get_ai_credits_detailed(
     - Sum amount_minor values
     """
     try:
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956"]
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
         stmt = (
             select(
                 Payment.amount_minor,
