@@ -42,14 +42,14 @@ async def get_all_purchases(
         today = datetime.now().date()
 
         today_daily_pass_query = (
-            select(func.coalesce(func.sum(DailyPass.days_total), 0))
+            select(func.count(DailyPass.id))
             .select_from(DailyPass)
             .join(Gym, cast(DailyPass.gym_id, Integer) == Gym.gym_id)
             .where(DailyPass.gym_id != "1")
             .where(func.date(DailyPass.created_at) == today)
         )
         today_session_query = (
-            select(func.coalesce(func.sum(SessionPurchase.sessions_count), 0))
+            select(func.count(SessionPurchase.id))
             .select_from(SessionPurchase)
             .join(Gym, SessionPurchase.gym_id == Gym.gym_id)
             .where(SessionPurchase.status == "paid")
@@ -747,9 +747,9 @@ async def get_booking_count(
             start_datetime = datetime.combine(today, datetime.min.time()).replace(tzinfo=IST)
             end_datetime = datetime.combine(today, datetime.max.time()).replace(tzinfo=IST)
 
-        # Count DailyPass bookings (sum of days_total)
+        # Count DailyPass bookings (unique purchases)
         daily_pass_query = (
-            select(func.coalesce(func.sum(DailyPass.days_total), 0))
+            select(func.count(DailyPass.id))
             .select_from(DailyPass)
             .join(Gym, cast(DailyPass.gym_id, Integer) == Gym.gym_id)
             .where(DailyPass.gym_id != "1")
@@ -757,9 +757,9 @@ async def get_booking_count(
             .where(DailyPass.created_at <= end_datetime)
         )
 
-        # Count SessionPurchase bookings (sum of sessions_count, only paid status)
+        # Count SessionPurchase bookings (unique purchases, only paid status)
         session_query = (
-            select(func.coalesce(func.sum(SessionPurchase.sessions_count), 0))
+            select(func.count(SessionPurchase.id))
             .select_from(SessionPurchase)
             .join(Gym, SessionPurchase.gym_id == Gym.gym_id)
             .where(SessionPurchase.status == "paid")
