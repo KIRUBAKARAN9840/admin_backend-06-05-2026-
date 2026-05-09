@@ -71,6 +71,7 @@ async def get_monthly_gst_tds_optimized(
     fittbot_subscription_revenue = revenue_data.fittbot_subscription
     gym_membership_revenue = revenue_data.gym_membership
     ai_credits_revenue = revenue_data.ai_credits
+    ai_diet_coach_revenue = revenue_data.ai_diet_coach
 
     # Calculate GST Collected
     # Fymble Subscription: Using centralized Nutritionist Plan GST calculation
@@ -80,6 +81,10 @@ async def get_monthly_gst_tds_optimized(
     # AI Credits: Using centralized AI Credits GST calculation
     ai_credits_calc = calculate_ai_credits_net_revenue(int(ai_credits_revenue))
     ai_credits_gst = float(ai_credits_calc["gst"])
+
+    # AI Diet Coach: Using centralized Nutritionist Plan GST calculation
+    ai_diet_coach_calc = calculate_nutritionist_plan_net_revenue(int(ai_diet_coach_revenue))
+    ai_diet_coach_gst = float(ai_diet_coach_calc["gst"])
 
     # Gym Membership: commission and TDS (unpack 4-tuple: payout, commission, pg, tds)
     _, membership_comm, _, membership_tds = calculate_membership_payout(gym_membership_revenue)
@@ -97,6 +102,7 @@ async def get_monthly_gst_tds_optimized(
     total_gst_collected = (
         fittbot_subscription_gst +
         ai_credits_gst +
+        ai_diet_coach_gst +
         gym_membership_gst +
         daily_pass_gst +
         sessions_gst

@@ -27,6 +27,7 @@ router = APIRouter(prefix="/api/admin/mrr", tags=["MRR"])
 def calculate_net_revenue_for_mrr(
     fittbot_subscription_revenue: float,
     ai_credits_revenue: float,
+    ai_diet_coach_revenue: float,
     gym_membership_revenue: float,
     daily_pass_revenue: float,
     sessions_revenue: float,
@@ -52,6 +53,10 @@ def calculate_net_revenue_for_mrr(
     ai_calc = calculate_ai_credits_net_revenue(int(ai_credits_revenue))
     ai_credits_net = ai_calc["net_revenue"]
 
+    # AI Diet Coach — reverse GST + Google 15% commission (centralized using Nutritionist logic)
+    ai_diet_coach_calc = calculate_nutritionist_plan_net_revenue(int(ai_diet_coach_revenue))
+    ai_diet_coach_net = ai_diet_coach_calc["net_revenue"]
+
     # 3. Gym Membership Net Revenue
     gym_membership_gst_on_comm = membership_comm * GST_RATE
     gym_membership_net = float(Decimal(str(gym_membership_revenue)) - gym_membership_gst_on_comm)
@@ -67,6 +72,7 @@ def calculate_net_revenue_for_mrr(
     total_net_revenue = (
         fittbot_subscription_net +
         ai_credits_net +
+        ai_diet_coach_net +
         gym_membership_net +
         daily_pass_net +
         sessions_net
@@ -76,6 +82,7 @@ def calculate_net_revenue_for_mrr(
         "total": float(total_net_revenue),
         "fittbot_subscription": float(fittbot_subscription_net),
         "ai_credits": float(ai_credits_net),
+        "ai_diet_coach": float(ai_diet_coach_net),
         "gym_membership": float(gym_membership_net),
         "daily_pass": float(daily_pass_net),
         "sessions": float(sessions_net)
@@ -153,6 +160,7 @@ async def get_mrr_data(
         current_net_result = calculate_net_revenue_for_mrr(
             fittbot_subscription_revenue=current_revenue_data.fittbot_subscription,
             ai_credits_revenue=current_revenue_data.ai_credits,
+            ai_diet_coach_revenue=current_revenue_data.ai_diet_coach,
             gym_membership_revenue=current_revenue_data.gym_membership,
             daily_pass_revenue=current_revenue_data.daily_pass,
             sessions_revenue=current_revenue_data.sessions,
@@ -164,6 +172,7 @@ async def get_mrr_data(
         prev_net_result = calculate_net_revenue_for_mrr(
             fittbot_subscription_revenue=prev_revenue_data.fittbot_subscription,
             ai_credits_revenue=prev_revenue_data.ai_credits,
+            ai_diet_coach_revenue=prev_revenue_data.ai_diet_coach,
             gym_membership_revenue=prev_revenue_data.gym_membership,
             daily_pass_revenue=prev_revenue_data.daily_pass,
             sessions_revenue=prev_revenue_data.sessions,
@@ -197,6 +206,7 @@ async def get_mrr_data(
                     "current_month": {
                         "fittbot_subscription": format_two_decimal(paise_to_rupees_float(current_net_result["fittbot_subscription"])),
                         "ai_credits": format_two_decimal(paise_to_rupees_float(current_net_result["ai_credits"])),
+                        "ai_diet_coach": format_two_decimal(paise_to_rupees_float(current_net_result["ai_diet_coach"])),
                         "gym_membership": format_two_decimal(paise_to_rupees_float(current_net_result["gym_membership"])),
                         "daily_pass": format_two_decimal(paise_to_rupees_float(current_net_result["daily_pass"])),
                         "sessions": format_two_decimal(paise_to_rupees_float(current_net_result["sessions"])),
@@ -205,6 +215,7 @@ async def get_mrr_data(
                     "previous_month": {
                         "fittbot_subscription": format_two_decimal(paise_to_rupees_float(prev_net_result["fittbot_subscription"])),
                         "ai_credits": format_two_decimal(paise_to_rupees_float(prev_net_result["ai_credits"])),
+                        "ai_diet_coach": format_two_decimal(paise_to_rupees_float(prev_net_result["ai_diet_coach"])),
                         "gym_membership": format_two_decimal(paise_to_rupees_float(prev_net_result["gym_membership"])),
                         "daily_pass": format_two_decimal(paise_to_rupees_float(prev_net_result["daily_pass"])),
                         "sessions": format_two_decimal(paise_to_rupees_float(prev_net_result["sessions"])),

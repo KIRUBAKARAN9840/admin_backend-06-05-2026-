@@ -92,6 +92,7 @@ async def get_last_month_outflow(
         gym_membership_revenue = revenue_data.gym_membership
         fittbot_subscription_revenue = revenue_data.fittbot_subscription
         ai_credits_revenue = revenue_data.ai_credits
+        ai_diet_coach_revenue = revenue_data.ai_diet_coach
 
         # Calculate payouts and deductions for each category (using financials logic)
         # Membership: 15% commission, 2% PG, 2% TDS
@@ -126,6 +127,10 @@ async def get_last_month_outflow(
         ai_credits_calc = calculate_ai_credits_net_revenue(int(ai_credits_revenue))
         gst_on_ai_credits_paise = ai_credits_calc["gst"]
 
+        # GST on AI Diet Coach
+        ai_diet_coach_calc = calculate_nutritionist_plan_net_revenue(int(ai_diet_coach_revenue))
+        gst_on_ai_diet_coach_paise = ai_diet_coach_calc["gst"]
+
         # GST on commissions (18% of commission)
         # Note: commissions are already in paise (int returned from calculate functions)
         gst_on_commission_paise = (
@@ -133,7 +138,7 @@ async def get_last_month_outflow(
             int(Decimal(str(daily_pass_comm)) * Decimal("0.18")) +
             int(Decimal(str(sessions_comm)) * Decimal("0.18"))
         )
-        total_gst_payable_paise = gst_on_subscription_paise + gst_on_ai_credits_paise + gst_on_commission_paise
+        total_gst_payable_paise = gst_on_subscription_paise + gst_on_ai_credits_paise + gst_on_ai_diet_coach_paise + gst_on_commission_paise
 
         # 4. Total TDS Payable (tax deducted that needs to be paid to government)
         total_tds_payable_paise = membership_tds + daily_pass_tds + sessions_tds
@@ -180,7 +185,7 @@ async def get_last_month_outflow(
         total_outflow_paise = total_gym_payout + total_gst_payable_paise + total_tds_payable_paise + total_expenses_paise
 
         # Calculate total inflow (total gross revenue) - all in paise
-        total_inflow_paise = daily_pass_revenue + sessions_revenue + gym_membership_revenue + fittbot_subscription_revenue + ai_credits_revenue
+        total_inflow_paise = daily_pass_revenue + sessions_revenue + gym_membership_revenue + fittbot_subscription_revenue + ai_credits_revenue + ai_diet_coach_revenue
 
         # Calculate net cash flow
         net_cash_flow_paise = total_inflow_paise - total_outflow_paise
@@ -236,6 +241,10 @@ async def get_last_month_outflow(
                     "ai_credits": {
                         "revenue": round(ai_credits_revenue / 100, 2),
                         "gst_on_revenue": round(gst_on_ai_credits_paise / 100, 2)
+                    },
+                    "ai_diet_coach": {
+                        "revenue": round(ai_diet_coach_revenue / 100, 2),
+                        "gst_on_revenue": round(gst_on_ai_diet_coach_paise / 100, 2)
                     }
                 }
             }
@@ -457,6 +466,7 @@ async def get_monthly_cash_flow_data(
             gym_membership_revenue = revenue_data.gym_membership
             fittbot_subscription_revenue = revenue_data.fittbot_subscription
             ai_credits_revenue = revenue_data.ai_credits
+            ai_diet_coach_revenue = revenue_data.ai_diet_coach
 
             # Calculate payouts and deductions
             membership_payout, membership_comm, membership_pg, membership_tds = calculate_membership_payout(
@@ -480,12 +490,15 @@ async def get_monthly_cash_flow_data(
             ai_credits_calc = calculate_ai_credits_net_revenue(int(ai_credits_revenue))
             gst_on_ai_credits_paise = ai_credits_calc["gst"]
 
+            ai_diet_coach_calc = calculate_nutritionist_plan_net_revenue(int(ai_diet_coach_revenue))
+            gst_on_ai_diet_coach_paise = ai_diet_coach_calc["gst"]
+
             gst_on_commission_paise = (
                 int(Decimal(str(membership_comm)) * Decimal("0.18")) +
                 int(Decimal(str(daily_pass_comm)) * Decimal("0.18")) +
                 int(Decimal(str(sessions_comm)) * Decimal("0.18"))
             )
-            total_gst_payable_paise = gst_on_subscription_paise + gst_on_ai_credits_paise + gst_on_commission_paise
+            total_gst_payable_paise = gst_on_subscription_paise + gst_on_ai_credits_paise + gst_on_ai_diet_coach_paise + gst_on_commission_paise
 
             # TDS Payable
             total_tds_payable_paise = membership_tds + daily_pass_tds + sessions_tds
@@ -506,7 +519,7 @@ async def get_monthly_cash_flow_data(
             total_expenses_paise = int(total_expenses_rupees * 100)
 
             # Calculate inflow, outflow, and net cash flow (in rupees)
-            total_inflow_paise = daily_pass_revenue + sessions_revenue + gym_membership_revenue + fittbot_subscription_revenue + ai_credits_revenue
+            total_inflow_paise = daily_pass_revenue + sessions_revenue + gym_membership_revenue + fittbot_subscription_revenue + ai_credits_revenue + ai_diet_coach_revenue
             total_outflow_paise = total_gym_payout + total_gst_payable_paise + total_tds_payable_paise + total_expenses_paise
             net_cash_flow_paise = total_inflow_paise - total_outflow_paise
 
@@ -644,6 +657,7 @@ async def export_cash_flow_data(
             gym_membership_revenue = revenue_data.gym_membership
             fittbot_subscription_revenue = revenue_data.fittbot_subscription
             ai_credits_revenue = revenue_data.ai_credits
+            ai_diet_coach_revenue = revenue_data.ai_diet_coach
 
             # Calculate payouts and deductions
             membership_payout, membership_comm, membership_pg, membership_tds = calculate_membership_payout(
@@ -666,12 +680,15 @@ async def export_cash_flow_data(
             ai_credits_calc = calculate_ai_credits_net_revenue(int(ai_credits_revenue))
             gst_on_ai_credits_paise = ai_credits_calc["gst"]
 
+            ai_diet_coach_calc = calculate_nutritionist_plan_net_revenue(int(ai_diet_coach_revenue))
+            gst_on_ai_diet_coach_paise = ai_diet_coach_calc["gst"]
+
             gst_on_commission_paise = (
                 int(Decimal(str(membership_comm)) * Decimal("0.18")) +
                 int(Decimal(str(daily_pass_comm)) * Decimal("0.18")) +
                 int(Decimal(str(sessions_comm)) * Decimal("0.18"))
             )
-            total_gst_payable_paise = gst_on_subscription_paise + gst_on_ai_credits_paise + gst_on_commission_paise
+            total_gst_payable_paise = gst_on_subscription_paise + gst_on_ai_credits_paise + gst_on_ai_diet_coach_paise + gst_on_commission_paise
 
             # TDS Payable
             total_tds_payable_paise = membership_tds + daily_pass_tds + sessions_tds
@@ -692,7 +709,7 @@ async def export_cash_flow_data(
             total_expenses_paise = int(total_expenses_rupees * 100)
 
             # Calculate inflow, outflow, and net cash flow (in rupees)
-            total_inflow_paise = daily_pass_revenue + sessions_revenue + gym_membership_revenue + fittbot_subscription_revenue + ai_credits_revenue
+            total_inflow_paise = daily_pass_revenue + sessions_revenue + gym_membership_revenue + fittbot_subscription_revenue + ai_credits_revenue + ai_diet_coach_revenue
             total_outflow_paise = total_gym_payout + total_gst_payable_paise + total_tds_payable_paise + total_expenses_paise
             net_cash_flow_paise = total_inflow_paise - total_outflow_paise
 
