@@ -205,7 +205,7 @@ async def get_gyms_registration_status(
 
         # Fetch gyms for current page
         gym_query = text(f"""
-            SELECT g.gym_id, g.owner_id, g.name, g.location
+            SELECT g.gym_id, g.owner_id, g.name, g.location, g.created_at
             FROM gyms g
             WHERE g.gym_id > 214 {search_clause}
             ORDER BY g.created_at DESC
@@ -277,13 +277,14 @@ async def get_gyms_registration_status(
         # Build response
         gyms_data = []
         for gym in gyms:
-            gym_id, owner_id, name, location = gym
+            gym_id, owner_id, name, location, created_at = gym
 
             gym_info = {
                 "gym_id": gym_id,
                 "gym_name": name,
                 "owner_contact_number": owner_contacts.get(owner_id),
                 "location": location,
+                "created_at": created_at.isoformat() if hasattr(created_at, 'isoformat') else str(created_at) if created_at else None,
                 "registration_steps": registration_steps_batch.get(gym_id, {}),
                 "plans_completion_score": plans_scores_batch.get(gym_id, 0.0)
             }
@@ -373,7 +374,7 @@ async def get_telecaller_gyms_registration_status(
 
         # Fetch gyms for current page
         gym_query = text(f"""
-            SELECT g.gym_id, g.owner_id, g.name, g.location
+            SELECT g.gym_id, g.owner_id, g.name, g.location, g.created_at
             FROM gyms g
             WHERE g.gym_id > 214 {search_clause}
             ORDER BY g.created_at DESC
@@ -445,13 +446,14 @@ async def get_telecaller_gyms_registration_status(
         # Build response
         gyms_data = []
         for gym in gyms:
-            gym_id, owner_id, name, location = gym
+            gym_id, owner_id, name, location, created_at = gym
 
             gym_info = {
                 "gym_id": gym_id,
                 "gym_name": name,
                 "owner_contact_number": owner_contacts.get(owner_id),
                 "location": location,
+                "created_at": created_at.isoformat() if hasattr(created_at, 'isoformat') else str(created_at) if created_at else None,
                 "registration_steps": registration_steps_batch.get(gym_id, {}),
                 "plans_completion_score": plans_scores_batch.get(gym_id, 0.0)
             }
