@@ -1837,13 +1837,13 @@ async def get_purchase_analytics(
             start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
         else:
             # Default to early date for overall data
-            start_date_obj = datetime(2020, 1, 1).date()
+            start_date_obj = datetime(1970, 1, 1).date()
 
         if end_date:
             end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
         else:
             # Default to today
-            end_date_obj = datetime.now().date()
+            end_date_obj = datetime(2100, 1, 1).date()
 
         # Get client IDs filtered by location if location is provided
         location_client_ids = set()
@@ -2352,12 +2352,33 @@ async def get_purchase_analytics(
                 ai_credits_unique_result = await db.execute(ai_credits_unique_users_stmt)
                 ai_credits_unique_users_count = ai_credits_unique_result.scalar() or 0
 
-                # Calculate totals and build purchases over time
-                ai_credits_total_purchases = 0
+                # Compute AI Credits Total Purchases exactly like compute_gmv_totals
+                ai_total_stmt = (
+                    select(func.count(Payment.id))
+                    .select_from(Payment)
+                    .outerjoin(Client, Payment.customer_id == Client.client_id)
+                    .where(Payment.status == "captured")
+                    .where(or_(
+                        func.json_extract(Payment.payment_metadata, '$.flow') == 'food_scanner_credits',
+                        func.json_extract(Payment.payment_metadata, '$.flow') == 'food_scanner_credits_razorpay'
+                    ))
+                    .where(~Client.contact.in_(EXCLUDED_CONTACTS))
+                )
+                if start_date:
+                    ai_total_stmt = ai_total_stmt.where(func.date(Payment.captured_at) >= start_date_obj)
+                if end_date:
+                    ai_total_stmt = ai_total_stmt.where(func.date(Payment.captured_at) <= end_date_obj)
+                if location_client_ids:
+                    location_customer_ids = {str(cid) for cid in location_client_ids}
+                    ai_total_stmt = ai_total_stmt.where(Payment.customer_id.in_(location_customer_ids))
+                    
+                ai_total_result = await db.execute(ai_total_stmt)
+                ai_credits_total_purchases = ai_total_result.scalar() or 0
+
+                # Build purchases over time (graph only)
                 for row in ai_credits_results:
                     date_key = row.purchase_date.isoformat() if row.purchase_date else None
                     if date_key:
-                        ai_credits_total_purchases += row.purchase_count
                         if date_key not in all_purchases_over_time:
                             all_purchases_over_time[date_key] = 0
                         all_purchases_over_time[date_key] += row.purchase_count
@@ -2821,8 +2842,8 @@ async def get_purchase_analytics(
             "locationBreakdown": location_breakdown,
             "revenueByCity": revenue_by_city,
             "filters": {
-                "startDate": start_date_obj.isoformat(),
-                "endDate": end_date_obj.isoformat(),
+                "startDate": start_date if start_date else "All Time",
+                "endDate": end_date if end_date else "All Time",
                 "source": source or "all",
                 "gymId": gym_id or "all",
                 "location": location or "all"

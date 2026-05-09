@@ -35,10 +35,20 @@ class CityStatsResponse(BaseModel):
     message: str
 
 
-async def get_total_bookings_count(db: AsyncSession, start_date: Optional[str] = None, end_date: Optional[str] = None):
+async def get_total_bookings_count(db: AsyncSession, start_date_obj, end_date_obj):
     try:
-        # Get GMV totals with date filters
-        gmv_data = await compute_gmv_totals(db, start_date, end_date)
+        # Get GMV totals with date filters (pass date objects, not strings)
+        gmv_data = await compute_gmv_totals(db, start_date_obj, end_date_obj)
+
+        import logging
+        logging.warning(
+            f"[users_stats] bookings debug | start={start_date_obj} | end={end_date_obj} | "
+            f"dp={gmv_data.get('daily_pass', {}).get('count')} | "
+            f"sess={gmv_data.get('session', {}).get('count')} | "
+            f"nutri={gmv_data.get('nutrition_plan', {}).get('count')} | "
+            f"gym={gmv_data.get('gym_membership', {}).get('count')} | "
+            f"ai={gmv_data.get('ai_credits', {}).get('count')}"
+        )
         
         # Sum up counts from all categories
         total = (
@@ -139,33 +149,107 @@ async def get_users_stats(
         paying_result = await db.execute(paying_query)
         paying_count = paying_result.scalar() or 0
 
-        # Query 4: Count customers who appear more than once (repeat users)
-        # Exclude payments associated with gym_id = 1
-        # Apply date filter if provided (using payment.captured_at or booking date)
-        repeat_filters = [
-            OrderItem.gym_id.isnot(None),
-            OrderItem.gym_id != "1"
-        ]
+        # Query 4: Retention Users - customers with multiple purchases
+        # A customer is included ONLY if NONE of their order_items have gym_id = 1
+        # (If ANY order_item for any of their orders has gym_id = 1, that customer is excluded)
+        # Apply date filter if provided
+
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+
+        date_filter_conditions = []
         if start_date_obj:
-            repeat_filters.append(Payment.captured_at >= start_date_obj)
+            date_filter_conditions.append(Payment.captured_at >= start_date_obj)
         if end_date_obj:
-            repeat_filters.append(Payment.captured_at <= end_date_obj)
+            date_filter_conditions.append(Payment.captured_at <= end_date_obj)
 
-        repeat_subquery = select(
-            Payment.customer_id
-        ).join(
-            Order, Order.id == Payment.order_id
-        ).join(
-            OrderItem, OrderItem.order_id == Order.id
-        ).where(
-            and_(*repeat_filters)
-        ).group_by(
-            Payment.customer_id
-        ).having(
-            func.count(Payment.customer_id) > 1
-        ).alias("repeat_users_subquery")
+        # Step 1: Find customers with more than 1 payment in filtered payments
+        # Also exclude internal/test contacts
+        customers_with_multiple_q = (
+            select(Payment.customer_id)
+            .join(Order, Order.id == Payment.order_id)
+            .outerjoin(Client, Payment.customer_id == Client.client_id)
+        )
+        customers_with_multiple_q = customers_with_multiple_q.where(
+            and_(
+                or_(
+                    Client.contact.is_(None),
+                    ~Client.contact.in_(EXCLUDED_CONTACTS)
+                )
+            )
+        )
+        if date_filter_conditions:
+            customers_with_multiple_q = customers_with_multiple_q.where(and_(*date_filter_conditions))
 
-        repeat_query = select(func.count()).select_from(repeat_subquery)
+        customers_with_multiple = (
+            customers_with_multiple_q
+            .group_by(Payment.customer_id)
+            .having(func.count(Payment.customer_id) > 1)
+        ).subquery()
+
+        # Step 2: For each multi-payment customer, check if ALL their orders have gym_id = 1
+        # A customer is EXCLUDED only if ALL their orders have at least one order_item with gym_id = 1
+        # A customer is INCLUDED if at least one of their orders has NO gym_id = 1
+
+        # First, get total orders per customer (excluding internal contacts)
+        total_orders_per_customer = (
+            select(
+                Payment.customer_id,
+                func.count(func.distinct(Order.id)).label("total_orders")
+            )
+            .join(Order, Order.id == Payment.order_id)
+            .outerjoin(Client, Payment.customer_id == Client.client_id)
+            .where(
+                or_(
+                    Client.contact.is_(None),
+                    ~Client.contact.in_(EXCLUDED_CONTACTS)
+                )
+            )
+            .group_by(Payment.customer_id)
+        ).subquery()
+
+        # Then, get count of orders that have gym_id = 1 (per customer)
+        # Also exclude internal/test contacts for consistency
+        bad_orders_per_customer = (
+            select(
+                Payment.customer_id,
+                func.count(func.distinct(OrderItem.order_id)).label("bad_orders")
+            )
+            .join(Order, Order.id == Payment.order_id)
+            .join(OrderItem, OrderItem.order_id == Order.id)
+            .outerjoin(Client, Payment.customer_id == Client.client_id)
+            .where(
+                and_(
+                    OrderItem.gym_id == '1',
+                    or_(
+                        Client.contact.is_(None),
+                        ~Client.contact.in_(EXCLUDED_CONTACTS)
+                    )
+                )
+            )
+            .group_by(Payment.customer_id)
+        ).subquery()
+
+        # Customers where ALL orders are bad (total_orders == bad_orders)
+        customers_with_all_bad_orders = (
+            select(total_orders_per_customer.c.customer_id)
+            .join(
+                bad_orders_per_customer,
+                total_orders_per_customer.c.customer_id == bad_orders_per_customer.c.customer_id
+            )
+            .where(
+                total_orders_per_customer.c.total_orders == bad_orders_per_customer.c.bad_orders
+            )
+        ).subquery()
+
+        # Final retention: multi-payment customers EXCLUDING those where ALL orders have gym_id = 1
+        retention_subquery = (
+            select(customers_with_multiple.c.customer_id)
+            .where(
+                ~customers_with_multiple.c.customer_id.in_(customers_with_all_bad_orders)
+            )
+        ).subquery()
+
+        repeat_query = select(func.count()).select_from(retention_subquery)
         repeat_result = await db.execute(repeat_query)
         repeat_count = repeat_result.scalar() or 0
 
@@ -212,7 +296,7 @@ async def get_users_stats(
                 "active_users": int(active_count),
                 "paying_users": int(paying_count),
                 "repeat_users": int(repeat_count),
-                "total_bookings": await get_total_bookings_count(db, start_date, end_date),
+                "total_bookings": await get_total_bookings_count(db, start_date_obj, end_date_obj),
                 "users_by_city": city_stats,
                 "total_cities": len(city_counts)
             },
