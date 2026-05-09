@@ -153,6 +153,7 @@ def calculate_net_revenue(
     daily_pass_revenue,
     sessions_revenue,
     ai_credits_revenue,
+    ai_diet_coach_revenue,
     membership_comm,
     daily_pass_comm,
     sessions_comm
@@ -178,6 +179,7 @@ def calculate_net_revenue(
     daily_pass_revenue = Decimal(str(daily_pass_revenue))
     sessions_revenue = Decimal(str(sessions_revenue))
     ai_credits_revenue = Decimal(str(ai_credits_revenue))
+    ai_diet_coach_revenue = Decimal(str(ai_diet_coach_revenue))
     membership_comm = Decimal(str(membership_comm))
     daily_pass_comm = Decimal(str(daily_pass_comm))
     sessions_comm = Decimal(str(sessions_comm))
@@ -194,6 +196,11 @@ def calculate_net_revenue(
     ai_credits_gst = Decimal(str(ai_credits_calc["gst"]))
     ai_credits_net = Decimal(str(ai_credits_calc["net_revenue"]))
 
+    # AI Diet Coach Net Revenue (same calculation as AI credits/nutritionist)
+    ai_diet_coach_calc = calculate_nutritionist_plan_net_revenue(int(ai_diet_coach_revenue))
+    ai_diet_coach_gst = Decimal(str(ai_diet_coach_calc["gst"]))
+    ai_diet_coach_net = Decimal(str(ai_diet_coach_calc["net_revenue"]))
+
     # 3. Gym Membership Net Revenue
     gym_membership_gst_on_comm = membership_comm * GST_RATE
     gym_membership_net = gym_membership_revenue - gym_membership_gst_on_comm
@@ -209,6 +216,7 @@ def calculate_net_revenue(
     total_net_revenue = (
         fittbot_subscription_net +
         ai_credits_net +
+        ai_diet_coach_net +
         gym_membership_net +
         daily_pass_net +
         sessions_net
@@ -224,6 +232,11 @@ def calculate_net_revenue(
             "revenue": float(ai_credits_revenue),
             "gst": float(ai_credits_gst),
             "net_revenue": float(ai_credits_net)
+        },
+        "ai_diet_coach": {
+            "revenue": float(ai_diet_coach_revenue),
+            "gst": float(ai_diet_coach_gst),
+            "net_revenue": float(ai_diet_coach_net)
         },
         "gym_membership": {
             "revenue": float(gym_membership_revenue),
@@ -284,6 +297,7 @@ async def get_financials_overview(
         gym_membership_revenue = revenue_data.gym_membership
         fittbot_subscription_revenue = revenue_data.fittbot_subscription
         ai_credits_revenue = revenue_data.ai_credits
+        ai_diet_coach_revenue = revenue_data.ai_diet_coach
 
         total_revenue = revenue_data.total_revenue
 
@@ -307,6 +321,7 @@ async def get_financials_overview(
             daily_pass_revenue=daily_pass_revenue,
             sessions_revenue=sessions_revenue,
             ai_credits_revenue=ai_credits_revenue,
+            ai_diet_coach_revenue=ai_diet_coach_revenue,
             membership_comm=membership_comm,
             daily_pass_comm=daily_pass_comm,
             sessions_comm=sessions_comm
@@ -315,11 +330,12 @@ async def get_financials_overview(
         # Calculate Gross Profit
         fittbot_subscription_gross_profit = net_revenue_data["fittbot_subscription"]["net_revenue"]
         ai_credits_gross_profit = net_revenue_data["ai_credits"]["net_revenue"]
+        ai_diet_coach_gross_profit = net_revenue_data["ai_diet_coach"]["net_revenue"]
         gym_membership_gross_profit = membership_comm - net_revenue_data["gym_membership"]["gst_on_comm"]
         daily_pass_gross_profit = daily_pass_comm - net_revenue_data["daily_pass"]["gst_on_comm"]
         sessions_gross_profit = sessions_comm - net_revenue_data["sessions"]["gst_on_comm"]
 
-        total_gross_profit = fittbot_subscription_gross_profit + ai_credits_gross_profit + gym_membership_gross_profit + daily_pass_gross_profit + sessions_gross_profit
+        total_gross_profit = fittbot_subscription_gross_profit + ai_credits_gross_profit + ai_diet_coach_gross_profit + gym_membership_gross_profit + daily_pass_gross_profit + sessions_gross_profit
 
         # Get Total Expenses
         total_expenses = await get_total_expenses(db, start_date_obj, end_date_obj)
@@ -349,6 +365,7 @@ async def get_financials_overview(
                     "fittbot_subscription": paise_to_rupees(fittbot_subscription_revenue),
                     "gym_membership": paise_to_rupees(gym_membership_revenue),
                     "ai_credits": paise_to_rupees(ai_credits_revenue),
+                    "ai_diet_coach": paise_to_rupees(ai_diet_coach_revenue),
                     "total": paise_to_rupees(total_revenue)
                 },
                 "payoutBreakdown": {
@@ -397,6 +414,11 @@ async def get_financials_overview(
                         "gst": paise_to_rupees(net_revenue_data["ai_credits"]["gst"]),
                         "net_revenue": paise_to_rupees(net_revenue_data["ai_credits"]["net_revenue"])
                     },
+                    "ai_diet_coach": {
+                        "revenue": paise_to_rupees(net_revenue_data["ai_diet_coach"]["revenue"]),
+                        "gst": paise_to_rupees(net_revenue_data["ai_diet_coach"]["gst"]),
+                        "net_revenue": paise_to_rupees(net_revenue_data["ai_diet_coach"]["net_revenue"])
+                    },
                     "gym_membership": {
                         "revenue": paise_to_rupees(net_revenue_data["gym_membership"]["revenue"]),
                         "commission": paise_to_rupees(net_revenue_data["gym_membership"]["commission"]),
@@ -427,6 +449,11 @@ async def get_financials_overview(
                         "revenue": paise_to_rupees(net_revenue_data["ai_credits"]["revenue"]),
                         "gst": paise_to_rupees(net_revenue_data["ai_credits"]["gst"]),
                         "gross_profit": paise_to_rupees(ai_credits_gross_profit)
+                    },
+                    "ai_diet_coach": {
+                        "revenue": paise_to_rupees(net_revenue_data["ai_diet_coach"]["revenue"]),
+                        "gst": paise_to_rupees(net_revenue_data["ai_diet_coach"]["gst"]),
+                        "gross_profit": paise_to_rupees(ai_diet_coach_gross_profit)
                     },
                     "gym_membership": {
                         "revenue": paise_to_rupees(net_revenue_data["gym_membership"]["revenue"]),

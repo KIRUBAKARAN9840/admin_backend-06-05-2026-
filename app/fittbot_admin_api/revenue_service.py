@@ -35,6 +35,7 @@ class RevenueBreakdown(BaseModel):
     fittbot_subscription: int
     gym_membership: int
     ai_credits: int
+    ai_diet_coach: int
 
 
 class AmortizedRevenueBreakdown(BaseModel):
@@ -45,6 +46,7 @@ class AmortizedRevenueBreakdown(BaseModel):
     fittbot_subscription: float  # Can be fractional due to amortization
     gym_membership: float  # Can be fractional due to amortization
     ai_credits: float  # Can be fractional due to amortization
+    ai_diet_coach: float  # Can be fractional due to amortization
 
 
 class DailyRevenuePoint(BaseModel):
@@ -253,6 +255,39 @@ async def get_fittbot_subscription_revenue(
         return 0
 
 
+async def get_ai_diet_coach_revenue(
+    db: AsyncSession,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    exclude_gym_id_one: bool = True,
+    specific_gym_id: Optional[int] = None
+) -> int:
+    """Get AI Diet Coach revenue for a date range."""
+    try:
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+        stmt = (
+            select(func.coalesce(func.sum(Payment.amount_minor), 0))
+            .select_from(Payment)
+            .outerjoin(Client, Payment.customer_id == Client.client_id)
+            .where(
+                Payment.status == "captured",
+                func.json_extract(Payment.payment_metadata, "$.flow") == "ai_diet_coach",
+                ~Client.contact.in_(EXCLUDED_CONTACTS)
+            )
+        )
+        if start_date and start_date.year > 1970:
+            stmt = stmt.where(func.date(Payment.captured_at) >= start_date)
+        if end_date and end_date.year < 2090:
+            stmt = stmt.where(func.date(Payment.captured_at) <= end_date)
+            
+        result = await db.execute(stmt)
+        return int(result.scalar() or 0)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return 0
+
+
 async def get_gym_membership_revenue(
     db: AsyncSession,
     start_date: date,
@@ -374,8 +409,9 @@ async def get_revenue_breakdown(
     fittbot_subscription = await get_fittbot_subscription_revenue(db, start_date, end_date, exclude_gym_id_one, specific_gym_id)
     gym_membership = await get_gym_membership_revenue(db, start_date, end_date, exclude_gym_id_one, specific_gym_id)
     ai_credits = await get_ai_credits_revenue(db, start_date, end_date, exclude_gym_id_one, specific_gym_id)
+    ai_diet_coach = await get_ai_diet_coach_revenue(db, start_date, end_date, exclude_gym_id_one, specific_gym_id)
 
-    total_revenue = daily_pass + sessions + fittbot_subscription + gym_membership + ai_credits
+    total_revenue = daily_pass + sessions + fittbot_subscription + gym_membership + ai_credits + ai_diet_coach
 
     return RevenueBreakdown(
         total_revenue=total_revenue,
@@ -383,7 +419,8 @@ async def get_revenue_breakdown(
         sessions=sessions,
         fittbot_subscription=fittbot_subscription,
         gym_membership=gym_membership,
-        ai_credits=ai_credits
+        ai_credits=ai_credits,
+        ai_diet_coach=ai_diet_coach
     )
 
 
@@ -502,6 +539,38 @@ async def get_amortized_fittbot_subscription_revenue(
         traceback.print_exc()
         return 0.0
 
+
+async def get_amortized_ai_diet_coach_revenue(
+    db: AsyncSession,
+    target_month_start: Optional[date] = None,
+    target_month_end: Optional[date] = None,
+    exclude_gym_id_one: bool = True
+) -> float:
+    """Get amortized AI Diet Coach revenue for MRR."""
+    total_revenue = 0.0
+    try:
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+        stmt = (
+            select(func.coalesce(func.sum(Payment.amount_minor), 0))
+            .select_from(Payment)
+            .outerjoin(Client, Payment.customer_id == Client.client_id)
+            .where(
+                Payment.status == "captured",
+                func.json_extract(Payment.payment_metadata, "$.flow") == "ai_diet_coach",
+                ~Client.contact.in_(EXCLUDED_CONTACTS)
+            )
+        )
+        if target_month_start and target_month_start.year > 1970:
+            stmt = stmt.where(func.date(Payment.captured_at) >= target_month_start)
+        if target_month_end and target_month_end.year < 2090:
+            stmt = stmt.where(func.date(Payment.captured_at) <= target_month_end)
+            
+        result = await db.execute(stmt)
+        return float(result.scalar() or 0)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return 0.0
 
 async def get_amortized_gym_membership_revenue(
     db: AsyncSession,
@@ -713,8 +782,9 @@ async def get_mrr_revenue_breakdown(
     gym_membership = await get_gym_membership_revenue(db, target_month_start, target_month_end, exclude_gym_id_one)
     # gym_membership = await get_amortized_gym_membership_revenue(db, target_month_start, target_month_end, exclude_gym_id_one)
     ai_credits = await get_ai_credits_revenue(db, target_month_start, target_month_end, exclude_gym_id_one)
+    ai_diet_coach = await get_amortized_ai_diet_coach_revenue(db, target_month_start, target_month_end, exclude_gym_id_one)
 
-    total_revenue = float(daily_pass) + float(sessions) + fittbot_subscription + gym_membership + float(ai_credits)
+    total_revenue = float(daily_pass) + float(sessions) + fittbot_subscription + gym_membership + float(ai_credits) + float(ai_diet_coach)
 
     return AmortizedRevenueBreakdown(
         total_revenue=total_revenue,
@@ -722,7 +792,8 @@ async def get_mrr_revenue_breakdown(
         sessions=sessions,
         fittbot_subscription=fittbot_subscription,
         gym_membership=gym_membership,
-        ai_credits=float(ai_credits)
+        ai_credits=float(ai_credits),
+        ai_diet_coach=float(ai_diet_coach)
     )
 
 
@@ -765,7 +836,8 @@ async def get_detailed_revenue_with_breakdowns(
         "sessions": 0,
         "fittbot_subscription": 0,
         "gym_membership": 0,
-        "ai_credits": 0
+        "ai_credits": 0,
+        "ai_diet_coach": 0
     }
 
     # Determine which sources to query
@@ -780,6 +852,8 @@ async def get_detailed_revenue_with_breakdowns(
         query_sources.append("gym_membership")
     if (not source or source == "ai_credits") and not specific_gym_id:
         query_sources.append("ai_credits")
+    if (not source or source == "ai_diet_coach") and not specific_gym_id:
+        query_sources.append("ai_diet_coach")
 
     # Query each source and collect daily/gym breakdowns
     for query_source in query_sources:
@@ -805,6 +879,11 @@ async def get_detailed_revenue_with_breakdowns(
             )
         elif query_source == "ai_credits":
             await _get_ai_credits_detailed(
+                db, start_date, end_date,
+                daily_revenue, source_revenue_paisa
+            )
+        elif query_source == "ai_diet_coach":
+            await _get_ai_diet_coach_detailed(
                 db, start_date, end_date,
                 daily_revenue, source_revenue_paisa
             )
@@ -1346,3 +1425,50 @@ def calculate_ai_credits_net_revenue(revenue_in_paise: int) -> dict:
         "net_revenue": int(max(0, net_revenue))
     }
 
+
+async def _get_ai_diet_coach_detailed(
+    db: AsyncSession,
+    start_date: Optional[date],
+    end_date: Optional[date],
+    daily_revenue: dict,
+    source_revenue: dict
+):
+    """Get AI Diet Coach revenue with daily breakdown."""
+    try:
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+        stmt = (
+            select(
+                Payment.amount_minor,
+                Payment.captured_at
+            )
+            .select_from(Payment)
+            .outerjoin(Client, Payment.customer_id == Client.client_id)
+            .where(
+                Payment.status == "captured",
+                func.json_extract(Payment.payment_metadata, "$.flow") == "ai_diet_coach",
+                ~Client.contact.in_(EXCLUDED_CONTACTS)
+            )
+        )
+        if start_date and start_date.year > 1970:
+            stmt = stmt.where(func.date(Payment.captured_at) >= start_date)
+        if end_date and end_date.year < 2090:
+            stmt = stmt.where(func.date(Payment.captured_at) <= end_date)
+            
+        result = await db.execute(stmt)
+        rows = result.all()
+        
+        total = 0
+        for row in rows:
+            amount = int(row.amount_minor or 0)
+            total += amount
+            source_revenue["ai_diet_coach"] += amount
+            
+            date_key = row.captured_at.date().isoformat() if row.captured_at else None
+            if date_key:
+                if date_key not in daily_revenue:
+                    daily_revenue[date_key] = 0
+                daily_revenue[date_key] += amount
+                
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
