@@ -120,7 +120,7 @@ async def get_latest_purchase_type(user_id: str, db: AsyncSession) -> Optional[s
                 elif not isinstance(meta, dict): meta = {}
                 
                 flow = meta.get("flow", "")
-                if flow in ("nutrition_purchase_googleplay", "nutrition_package_razorpay"):
+                if flow in ("nutrition_purchase_googleplay", "nutrition_package_razorpay", "basic_nutrition_plan", "expert_nutrition_plan", "elite_nutrition_plan"):
                     return "Nutrition Plan"
                 if flow in ("food_scanner_credits", "food_scanner_credits_razorpay"):
                     return "AI Credits"
@@ -318,7 +318,7 @@ async def get_user_last_purchases_async(user_id: str, db: AsyncSession):
                 except: metadata = {}
             elif not isinstance(metadata, dict): metadata = {}
             
-            if metadata.get("flow") in ("nutrition_purchase_googleplay", "nutrition_package_razorpay"):
+            if metadata.get("flow") in ("nutrition_purchase_googleplay", "nutrition_package_razorpay", "basic_nutrition_plan", "expert_nutrition_plan", "elite_nutrition_plan"):
                 purchases["subscription"] = {
                     "type": "Nutrition Plan",
                     "purchase_date": payment.captured_at.isoformat() if payment.captured_at else (payment.created_at.isoformat() if payment.created_at else None),

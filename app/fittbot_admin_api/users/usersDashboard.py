@@ -2391,7 +2391,10 @@ async def get_user_fittbot_subscription(
             .where(Payment.status == "captured")
             .where(or_(
                 func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_purchase_googleplay',
-                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay'
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'basic_nutrition_plan',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'expert_nutrition_plan',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'elite_nutrition_plan'
             ))
         )
 
@@ -2871,7 +2874,7 @@ async def get_user_last_purchases(
                 elif not isinstance(metadata, dict):
                     metadata = {}
 
-                if metadata.get("flow") in ("nutrition_purchase_googleplay", "nutrition_package_razorpay"):
+                if metadata.get("flow") in ("nutrition_purchase_googleplay", "nutrition_package_razorpay", "basic_nutrition_plan", "expert_nutrition_plan", "elite_nutrition_plan"):
                     purchases["subscription"] = {
                         "type": "Nutrition Plan",
                         "purchase_date": payment.captured_at.isoformat() if payment.captured_at else (payment.created_at.isoformat() if payment.created_at else None),

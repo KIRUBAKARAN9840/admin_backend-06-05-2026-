@@ -841,7 +841,10 @@ async def compute_gmv_totals(db: AsyncSession, start_date_obj, end_date_obj):
         Payment.status == "captured",
         or_(
             func.json_extract(Payment.payment_metadata, "$.flow") == "nutrition_purchase_googleplay",
-            func.json_extract(Payment.payment_metadata, "$.flow") == "nutrition_package_razorpay"
+            func.json_extract(Payment.payment_metadata, "$.flow") == "nutrition_package_razorpay",
+            func.json_extract(Payment.payment_metadata, "$.flow") == "basic_nutrition_plan",
+            func.json_extract(Payment.payment_metadata, "$.flow") == "expert_nutrition_plan",
+            func.json_extract(Payment.payment_metadata, "$.flow") == "elite_nutrition_plan"
         )
     ]
     if start_date_obj:
@@ -1010,7 +1013,10 @@ async def get_purchase_count_summary(
                 Payment.status == "captured",
                 or_(
                     func.json_extract(Payment.payment_metadata, "$.flow") == "nutrition_purchase_googleplay",
-                    func.json_extract(Payment.payment_metadata, "$.flow") == "nutrition_package_razorpay"
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "nutrition_package_razorpay",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "basic_nutrition_plan",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "expert_nutrition_plan",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "elite_nutrition_plan"
                 ),
                 ~Client.contact.in_(EXCLUDED_CONTACTS)
             )
@@ -1194,7 +1200,10 @@ async def export_purchase_count_summary(
                 Payment.status == "captured",
                 or_(
                     func.json_extract(Payment.payment_metadata, "$.flow") == "nutrition_purchase_googleplay",
-                    func.json_extract(Payment.payment_metadata, "$.flow") == "nutrition_package_razorpay"
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "nutrition_package_razorpay",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "basic_nutrition_plan",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "expert_nutrition_plan",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "elite_nutrition_plan"
                 ),
                 ~Client.contact.in_(EXCLUDED_CONTACTS)
             )
@@ -3038,7 +3047,10 @@ async def get_nutritionist_plans(
             .where(Payment.status == "captured")
             .where(or_(
                 func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_purchase_googleplay',
-                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay'
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'basic_nutrition_plan',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'expert_nutrition_plan',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'elite_nutrition_plan'
             ))
             .where(~Client.contact.in_(EXCLUDED_CONTACTS))  # Exclude internal/test contacts
         )
@@ -3077,7 +3089,10 @@ async def get_nutritionist_plans(
             .where(Payment.status == "captured")
             .where(or_(
                 func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_purchase_googleplay',
-                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay'
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'basic_nutrition_plan',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'expert_nutrition_plan',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'elite_nutrition_plan'
             ))
             .where(~Client.contact.in_(EXCLUDED_CONTACTS))  # Exclude internal/test contacts
         )
@@ -3217,7 +3232,10 @@ async def export_nutritionist_plans(
             .where(Payment.status == "captured")
             .where(or_(
                 func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_purchase_googleplay',
-                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay'
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'basic_nutrition_plan',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'expert_nutrition_plan',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'elite_nutrition_plan'
             ))
             .where(~Client.contact.in_(EXCLUDED_CONTACTS))
             .order_by(desc(Payment.captured_at))

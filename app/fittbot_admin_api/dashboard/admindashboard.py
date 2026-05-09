@@ -517,7 +517,10 @@ async def get_plans_metrics(db: AsyncSession):
             Payment.status == "captured",
             or_(
                 func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_purchase_googleplay',
-                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay'
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'basic_nutrition_plan',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'expert_nutrition_plan',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'elite_nutrition_plan'
             ),
             ~Client.contact.in_(EXCLUDED_CONTACTS)
         )
@@ -1036,7 +1039,10 @@ async def get_recurring_subscribers(db: AsyncSession = Depends(get_async_db)):
             .where(Payment.status == "captured")
             .where(or_(
                 func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_purchase_googleplay',
-                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay'
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'basic_nutrition_plan',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'expert_nutrition_plan',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'elite_nutrition_plan'
             ))
         )
 
@@ -1108,7 +1114,10 @@ async def get_recurring_subscribers_details(
             .where(Payment.status == "captured")
             .where(or_(
                 func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_purchase_googleplay',
-                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay'
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'basic_nutrition_plan',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'expert_nutrition_plan',
+                func.json_extract(Payment.payment_metadata, '$.flow') == 'elite_nutrition_plan'
             ))
         )
 
@@ -2238,7 +2247,10 @@ async def get_purchase_analytics(
                     .where(Payment.status == "captured")
                     .where(or_(
                         func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_purchase_googleplay',
-                        func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay'
+                        func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay',
+                        func.json_extract(Payment.payment_metadata, '$.flow') == 'basic_nutrition_plan',
+                        func.json_extract(Payment.payment_metadata, '$.flow') == 'expert_nutrition_plan',
+                        func.json_extract(Payment.payment_metadata, '$.flow') == 'elite_nutrition_plan'
                     ))
                     .where(func.date(Payment.captured_at) >= start_date_obj)
                     .where(func.date(Payment.captured_at) <= end_date_obj)
@@ -2262,7 +2274,10 @@ async def get_purchase_analytics(
                     .where(Payment.status == "captured")
                     .where(or_(
                         func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_purchase_googleplay',
-                        func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay'
+                        func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay',
+                        func.json_extract(Payment.payment_metadata, '$.flow') == 'basic_nutrition_plan',
+                        func.json_extract(Payment.payment_metadata, '$.flow') == 'expert_nutrition_plan',
+                        func.json_extract(Payment.payment_metadata, '$.flow') == 'elite_nutrition_plan'
                     ))
                     .where(func.date(Payment.captured_at) >= start_date_obj)
                     .where(func.date(Payment.captured_at) <= end_date_obj)
@@ -2691,7 +2706,10 @@ async def get_purchase_analytics(
                         Payment.status == "captured",
                         or_(
                             func.json_extract(Payment.payment_metadata, "$.flow") == "nutrition_purchase_googleplay",
-                            func.json_extract(Payment.payment_metadata, "$.flow") == "nutrition_package_razorpay"
+                            func.json_extract(Payment.payment_metadata, "$.flow") == "nutrition_package_razorpay",
+                            func.json_extract(Payment.payment_metadata, "$.flow") == "basic_nutrition_plan",
+                            func.json_extract(Payment.payment_metadata, "$.flow") == "expert_nutrition_plan",
+                            func.json_extract(Payment.payment_metadata, "$.flow") == "elite_nutrition_plan"
                         ),
                         func.date(Payment.captured_at) >= start_date_obj,
                         func.date(Payment.captured_at) <= end_date_obj,
@@ -2996,7 +3014,10 @@ async def get_booking_averages(
                             Payment.status == "captured",
                             or_(
                                 func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_purchase_googleplay',
-                                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay'
+                                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay',
+                                func.json_extract(Payment.payment_metadata, '$.flow') == 'basic_nutrition_plan',
+                                func.json_extract(Payment.payment_metadata, '$.flow') == 'expert_nutrition_plan',
+                                func.json_extract(Payment.payment_metadata, '$.flow') == 'elite_nutrition_plan'
                             ),
                             Payment.captured_at >= subscription_start,
                             Payment.captured_at <= subscription_end,
