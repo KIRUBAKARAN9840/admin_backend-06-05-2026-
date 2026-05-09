@@ -208,6 +208,7 @@ async def get_users_stats(
             "success": True,
             "data": {
                 "total_users": int(total_count),
+                "total_clients_constant": int(total_count),
                 "active_users": int(active_count),
                 "paying_users": int(paying_count),
                 "repeat_users": int(repeat_count),

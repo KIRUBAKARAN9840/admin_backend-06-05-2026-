@@ -232,6 +232,7 @@ async def get_telecaller_details(
                     GymCallLogs.created_at == latest_log_ids_subquery.c.max_created_at
                 )
             )
+            .order_by(desc(GymCallLogs.created_at))
         )
 
         latest_logs_result = await db.execute(latest_logs_stmt)

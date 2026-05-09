@@ -435,3 +435,42 @@ class AiDietBooking(Base):
 
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class AnthropometricData(Base):
+
+    __tablename__ = "anthropometric_data"
+    __table_args__ = (
+        Index("ix_anthropometric_data_client_id", "client_id"),
+        Index("ix_anthropometric_data_nutritionist_id", "nutritionist_id"),
+        {
+            "schema": NUTRITION_SCHEMA
+        },
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    nutritionist_id = Column(Integer, nullable=False, index=True)
+    client_id = Column(Integer, nullable=False, index=True)
+
+    occupation = Column(String(255), nullable=True)
+
+    anthropometric = Column(JSON, nullable=True)
+
+    biochemical_assessment = Column(Text, nullable=True)
+    clinical_assessment = Column(Text, nullable=True)
+    dietary_assessment = Column(Text, nullable=True)
+    lifestyle_assessment = Column(Text, nullable=True)
+
+    created_at = Column(
+        DateTime,
+        default=lambda: now_ist().replace(tzinfo=None),
+        nullable=False
+    )
+
+    updated_at = Column(
+        DateTime,
+        default=lambda: now_ist().replace(tzinfo=None),
+        onupdate=lambda: now_ist().replace(tzinfo=None),
+        nullable=False
+    )
