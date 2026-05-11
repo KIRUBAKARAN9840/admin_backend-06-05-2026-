@@ -60,6 +60,7 @@ OPERATIONAL_EXPENSE_TYPES = [
     "Electricity",
     "Water",
     "Staff Salaries",
+    "Nutritionist Salary",
     "Maintenance & Repairs",
     "Cleaning & Housekeeping",
     "Internet & Utilities",
@@ -80,6 +81,7 @@ MARKETING_EXPENSE_TYPES = [
     "Video & Content Production",
     "Brand Photoshoot",
     "SMS & Email Marketing Campaigns",
+    "AWS Cost",
     "Other"
 ]
 
