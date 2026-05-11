@@ -410,21 +410,23 @@ async def get_unit_economics(
 
     logging.info(f"[UnitEconomics] Retained users: {retained_count}")
 
-    # Step 4: Calculate Churn Rate
-    churn_rate = 0
-    if previous_month_count > 0:
-        churn_rate = retained_count / previous_month_count
-
-    logging.info(f"[UnitEconomics] Churn rate: {churn_rate}")
-
-    # Step 5: Calculate LTV
-    ltv = 0
-    if churn_rate > 0:
-        ltv = 1 / churn_rate
+    # Step 4: Calculate Retention and Churn Rate
+    # Only calculate if we have data in both months to establish a trend
+    if previous_month_count > 0 and current_month_count > 0:
+        retention_rate = retained_count / previous_month_count
+        churn_rate = 1 - retention_rate
+        
+        # Step 5: Calculate LTV (Average Lifetime in Months)
+        if churn_rate > 0:
+            ltv = 1 / churn_rate
+        else:
+            ltv = 24 # Cap at 24 months for 100% retention
     else:
-        ltv = 0
+        retention_rate = None
+        churn_rate = None
+        ltv = None
 
-    logging.info(f"[UnitEconomics] LTV calculated: {ltv}")
+    logging.info(f"[UnitEconomics] Retention: {retention_rate}, Churn: {churn_rate}, LTV: {ltv}")
 
     # Combine all data
     analytics_data = {
@@ -432,9 +434,10 @@ async def get_unit_economics(
         "cac": round(cac, 2),
         "totalExpenses": round(total_expenses, 2),
         "totalNewUsers": total_new_users,
-        # LTV Data (D30 Retention)
-        "ltv": round(ltv, 2),
-        "cohortRetentionRate": round(churn_rate, 4),
+        # LTV Data (Retention & Churn)
+        "ltv": round(ltv, 2) if ltv is not None else None,
+        "cohortRetentionRate": round(retention_rate, 4) if retention_rate is not None else None,
+        "churnRate": round(churn_rate, 4) if churn_rate is not None else None,
         "retainedUsers": retained_count,
         # Filters
         "filters": {
@@ -519,6 +522,8 @@ async def get_unit_economics(
         fin_metrics = await get_financial_metrics(db, start_date_obj, end_date_obj)
         analytics_data["grossMarginPercentage"] = fin_metrics["gross_margin_percentage"]
         analytics_data["ebita"] = fin_metrics["ebita"]
+        analytics_data["grossProfit"] = fin_metrics["gross_profit"]
+        analytics_data["totalExpenses"] = fin_metrics["total_expenses"]
         analytics_data["arpu"] = fin_metrics["arpu"]
         analytics_data["arppu"] = fin_metrics["arppu"]
         analytics_data["totalNetRevenue"] = fin_metrics["total_net_revenue"]
