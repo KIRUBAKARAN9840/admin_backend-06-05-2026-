@@ -80,7 +80,8 @@ async def get_all_purchases(
                 Gym.area.label("gym_area"),
                 Client.contact.label("client_contact"),
                 Client.platform.label("platform"),
-                literal(None).label("session_name")
+                literal(None).label("session_name"),
+                DailyPass.head_count.label("head_count")
             )
             .select_from(DailyPass)
             .join(Gym, cast(DailyPass.gym_id, Integer) == Gym.gym_id)  # Inner join - exclude if gym not found
@@ -110,7 +111,8 @@ async def get_all_purchases(
                 Gym.area.label("gym_area"),
                 Client.contact.label("client_contact"),
                 Client.platform.label("platform"),
-                ClassSession.name.label("session_name")
+                ClassSession.name.label("session_name"),
+                literal(1).label("head_count")
             )
             .select_from(SessionPurchase)
             .join(Gym, SessionPurchase.gym_id == Gym.gym_id)  # Inner join - exclude if gym not found
@@ -342,7 +344,8 @@ async def get_all_purchases(
                 combined_query.c.gym_area,
                 combined_query.c.client_contact,
                 combined_query.c.platform,
-                combined_query.c.session_name
+                combined_query.c.session_name,
+                combined_query.c.head_count
             )
             .select_from(combined_query)
             .order_by(combined_query.c.purchased_at.desc())
@@ -504,7 +507,8 @@ async def get_all_purchases(
                 "owner_name": row.owner_name or "N/A",
                 "gym_area": row.gym_area or "N/A",
                 "client_contact": row.client_contact or None,
-                "platform": row.platform or None
+                "platform": row.platform or None,
+                "head_count": row.head_count or 1
             }
 
             if row.type == "Daily Pass":
