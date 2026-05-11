@@ -16,6 +16,7 @@ from app.fittbot_admin_api.revenue_service import (
     paise_to_rupees,
     calculate_nutritionist_plan_net_revenue,
     calculate_ai_credits_net_revenue,
+    calculate_digital_service_gst,
     calculate_membership_payout,
     calculate_daily_pass_session_payout
 )
@@ -117,19 +118,10 @@ async def get_last_month_outflow(
         # 2. Total PG Charges (payment gateway fees - kept by platform, not paid out)
         total_pg_charges = membership_pg + daily_pass_pg + sessions_pg
 
-        # 3. Total GST Payable (in paise for consistency)
-        # GST on subscription (using centralized Nutritionist Plan GST calculation)
-        # Note: fittbot_subscription_revenue is already in paise from DB
-        nutritionist_calc = calculate_nutritionist_plan_net_revenue(int(fittbot_subscription_revenue))
-        gst_on_subscription_paise = nutritionist_calc["gst"]
-
-        # GST on AI Credits (using centralized AI Credits GST calculation)
-        ai_credits_calc = calculate_ai_credits_net_revenue(int(ai_credits_revenue))
-        gst_on_ai_credits_paise = ai_credits_calc["gst"]
-
-        # GST on AI Diet Coach
-        ai_diet_coach_calc = calculate_nutritionist_plan_net_revenue(int(ai_diet_coach_revenue))
-        gst_on_ai_diet_coach_paise = ai_diet_coach_calc["gst"]
+        # 3. Total GST Payable — using dedicated GST calculator (accurate for tax reporting)
+        gst_on_subscription_paise = calculate_digital_service_gst(int(fittbot_subscription_revenue))
+        gst_on_ai_credits_paise   = calculate_digital_service_gst(int(ai_credits_revenue))
+        gst_on_ai_diet_coach_paise = calculate_digital_service_gst(int(ai_diet_coach_revenue))
 
         # GST on commissions (18% of commission)
         # Note: commissions are already in paise (int returned from calculate functions)
@@ -483,15 +475,10 @@ async def get_monthly_cash_flow_data(
             total_gym_payout = membership_payout + daily_pass_payout + sessions_payout
             total_pg_charges = membership_pg + daily_pass_pg + sessions_pg
 
-            # GST Payable
-            nutritionist_calc = calculate_nutritionist_plan_net_revenue(int(fittbot_subscription_revenue))
-            gst_on_subscription_paise = nutritionist_calc["gst"]
-
-            ai_credits_calc = calculate_ai_credits_net_revenue(int(ai_credits_revenue))
-            gst_on_ai_credits_paise = ai_credits_calc["gst"]
-
-            ai_diet_coach_calc = calculate_nutritionist_plan_net_revenue(int(ai_diet_coach_revenue))
-            gst_on_ai_diet_coach_paise = ai_diet_coach_calc["gst"]
+            # GST Payable — using dedicated GST calculator (accurate for tax reporting)
+            gst_on_subscription_paise  = calculate_digital_service_gst(int(fittbot_subscription_revenue))
+            gst_on_ai_credits_paise    = calculate_digital_service_gst(int(ai_credits_revenue))
+            gst_on_ai_diet_coach_paise = calculate_digital_service_gst(int(ai_diet_coach_revenue))
 
             gst_on_commission_paise = (
                 int(Decimal(str(membership_comm)) * Decimal("0.18")) +
@@ -673,15 +660,10 @@ async def export_cash_flow_data(
             # Calculate totals
             total_gym_payout = membership_payout + daily_pass_payout + sessions_payout
 
-            # GST Payable
-            nutritionist_calc = calculate_nutritionist_plan_net_revenue(int(fittbot_subscription_revenue))
-            gst_on_subscription_paise = nutritionist_calc["gst"]
-
-            ai_credits_calc = calculate_ai_credits_net_revenue(int(ai_credits_revenue))
-            gst_on_ai_credits_paise = ai_credits_calc["gst"]
-
-            ai_diet_coach_calc = calculate_nutritionist_plan_net_revenue(int(ai_diet_coach_revenue))
-            gst_on_ai_diet_coach_paise = ai_diet_coach_calc["gst"]
+            # GST Payable — using dedicated GST calculator (accurate for tax reporting)
+            gst_on_subscription_paise  = calculate_digital_service_gst(int(fittbot_subscription_revenue))
+            gst_on_ai_credits_paise    = calculate_digital_service_gst(int(ai_credits_revenue))
+            gst_on_ai_diet_coach_paise = calculate_digital_service_gst(int(ai_diet_coach_revenue))
 
             gst_on_commission_paise = (
                 int(Decimal(str(membership_comm)) * Decimal("0.18")) +

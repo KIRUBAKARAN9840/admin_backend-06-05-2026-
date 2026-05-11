@@ -1368,15 +1368,22 @@ def calculate_nutritionist_plan_net_revenue(revenue_in_paise: int) -> dict:
     # Convert to Decimal for precise calculation
     revenue = Decimal(str(revenue_in_paise))
 
+    # --- OLD LOGIC COMMENTED OUT ---
     # Step 1: Reverse GST calculation (amount is inclusive of GST)
-    taxable_value = revenue / Decimal("1.18")
-    gst = revenue - taxable_value
-
+    # taxable_value = revenue / Decimal("1.18")
+    # gst = revenue - taxable_value
+    # 
     # Step 2: Google commission (15% of total revenue)
-    google_commission = revenue * GOOGLE_COMMISSION_RATE
-
+    # google_commission = revenue * GOOGLE_COMMISSION_RATE
+    # 
     # Step 3: Net revenue after GST and Google commission
-    net_revenue = taxable_value - google_commission
+    # net_revenue = taxable_value - google_commission
+
+    # --- NEW LOGIC ---
+    # New logic: total revenue * 0.71
+    net_revenue = revenue * Decimal("0.71")
+    gst = Decimal("0")
+    google_commission = Decimal("0")
 
     return {
         "revenue": int(revenue),
@@ -1409,15 +1416,22 @@ def calculate_ai_credits_net_revenue(revenue_in_paise: int) -> dict:
     # Convert to Decimal for precise calculation
     revenue = Decimal(str(revenue_in_paise))
 
+    # --- OLD LOGIC COMMENTED OUT ---
     # Step 1: Reverse GST calculation (amount is inclusive of GST)
-    taxable_value = revenue / Decimal("1.18")
-    gst = revenue - taxable_value
-
+    # taxable_value = revenue / Decimal("1.18")
+    # gst = revenue - taxable_value
+    #
     # Step 2: Google commission (15% of total revenue)
-    google_commission = revenue * GOOGLE_COMMISSION_RATE
-
+    # google_commission = revenue * GOOGLE_COMMISSION_RATE
+    #
     # Step 3: Net revenue after GST and Google commission
-    net_revenue = taxable_value - google_commission
+    # net_revenue = taxable_value - google_commission
+
+    # --- NEW LOGIC ---
+    # New logic: total revenue * 0.71
+    net_revenue = revenue * Decimal("0.71")
+    gst = Decimal("0")
+    google_commission = Decimal("0")
 
     return {
         "revenue": int(revenue),
@@ -1425,6 +1439,29 @@ def calculate_ai_credits_net_revenue(revenue_in_paise: int) -> dict:
         "google_commission": int(google_commission),
         "net_revenue": int(max(0, net_revenue))
     }
+
+
+def calculate_digital_service_gst(revenue_in_paise: int) -> int:
+    """
+    Calculate GST for digital services (Nutritionist Plans, AI Credits, AI Diet Coach)
+    using the ORIGINAL reverse-GST method.
+
+    This function is used ONLY for Tax & Compliance and Cash Flow pages where
+    accurate GST reporting is required, independent of the net revenue formula.
+
+    Formula: GST = Revenue - (Revenue / 1.18)
+
+    Args:
+        revenue_in_paise: Revenue amount in PAISA (minor units)
+
+    Returns:
+        GST amount in PAISA (int)
+    """
+    from decimal import Decimal
+    revenue = Decimal(str(revenue_in_paise))
+    taxable_value = revenue / Decimal("1.18")
+    gst = revenue - taxable_value
+    return int(gst)
 
 
 async def _get_ai_diet_coach_detailed(

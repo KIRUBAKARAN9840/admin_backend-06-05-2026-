@@ -17,6 +17,7 @@ from app.fittbot_admin_api.revenue_service import (
     paise_to_rupees,
     calculate_nutritionist_plan_net_revenue,
     calculate_ai_credits_net_revenue,
+    calculate_digital_service_gst,
     calculate_membership_payout,
     calculate_daily_pass_session_payout
 )
@@ -74,17 +75,14 @@ async def get_monthly_gst_tds_optimized(
     ai_diet_coach_revenue = revenue_data.ai_diet_coach
 
     # Calculate GST Collected
-    # Fymble Subscription: Using centralized Nutritionist Plan GST calculation
-    nutritionist_calc = calculate_nutritionist_plan_net_revenue(int(fittbot_subscription_revenue))
-    fittbot_subscription_gst = float(nutritionist_calc["gst"])
+    # Fymble Subscription: use dedicated GST calculator (not net revenue formula)
+    fittbot_subscription_gst = float(calculate_digital_service_gst(int(fittbot_subscription_revenue)))
 
-    # AI Credits: Using centralized AI Credits GST calculation
-    ai_credits_calc = calculate_ai_credits_net_revenue(int(ai_credits_revenue))
-    ai_credits_gst = float(ai_credits_calc["gst"])
+    # AI Credits: use dedicated GST calculator
+    ai_credits_gst = float(calculate_digital_service_gst(int(ai_credits_revenue)))
 
-    # AI Diet Coach: Using centralized Nutritionist Plan GST calculation
-    ai_diet_coach_calc = calculate_nutritionist_plan_net_revenue(int(ai_diet_coach_revenue))
-    ai_diet_coach_gst = float(ai_diet_coach_calc["gst"])
+    # AI Diet Coach: use dedicated GST calculator
+    ai_diet_coach_gst = float(calculate_digital_service_gst(int(ai_diet_coach_revenue)))
 
     # Gym Membership: commission and TDS (unpack 4-tuple: payout, commission, pg, tds)
     _, membership_comm, _, membership_tds = calculate_membership_payout(gym_membership_revenue)
