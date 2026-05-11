@@ -1044,7 +1044,7 @@ async def get_purchase_count_summary(
             )
         )
 
-        # AI Credits
+        # AI Credits & AI Diet Coach
         ai_stream = (
             select(
                 Payment.customer_id.label("client_id")
@@ -1054,7 +1054,8 @@ async def get_purchase_count_summary(
                 Payment.status == "captured",
                 or_(
                     func.json_extract(Payment.payment_metadata, "$.flow") == "food_scanner_credits",
-                    func.json_extract(Payment.payment_metadata, "$.flow") == "food_scanner_credits_razorpay"
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "food_scanner_credits_razorpay",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "ai_diet_coach"
                 ),
                 ~Client.contact.in_(EXCLUDED_CONTACTS)
             )
@@ -1231,7 +1232,7 @@ async def export_purchase_count_summary(
             )
         )
 
-        # AI Credits
+        # AI Credits & AI Diet Coach
         ai_stream = (
             select(
                 Payment.customer_id.label("client_id"),
@@ -1246,7 +1247,8 @@ async def export_purchase_count_summary(
                 Payment.status == "captured",
                 or_(
                     func.json_extract(Payment.payment_metadata, "$.flow") == "food_scanner_credits",
-                    func.json_extract(Payment.payment_metadata, "$.flow") == "food_scanner_credits_razorpay"
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "food_scanner_credits_razorpay",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "ai_diet_coach"
                 ),
                 ~Client.contact.in_(EXCLUDED_CONTACTS)
             )
