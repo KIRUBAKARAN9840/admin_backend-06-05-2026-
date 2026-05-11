@@ -18,7 +18,10 @@ from app.fittbot_admin_api.revenue_service import (
     calculate_nutritionist_plan_net_revenue,
     calculate_ai_credits_net_revenue,
     calculate_membership_payout,
-    calculate_daily_pass_session_payout
+    calculate_daily_pass_session_payout,
+    get_gross_margin_data,
+    calculate_net_revenue,
+    get_financial_metrics
 )
 
 router = APIRouter(prefix="/api/admin/financials", tags=["AdminFinancials"])
@@ -31,233 +34,11 @@ async def get_total_expenses(
     end_date
 ):
     """
-    Get total expenses from fittbot_admins.expenses table for a date range.
-    Returns the sum of all expenses (both operational and marketing).
+    Standardized wrapper for total expenses.
     """
-    try:
-        conditions = [
-            Expenses.expense_date >= start_date,
-            Expenses.expense_date <= end_date
-        ]
-
-        total_query = select(func.coalesce(func.sum(Expenses.amount), 0))
-        if conditions:
-            total_query = total_query.where(and_(*conditions))
-
-        total_result = await db.execute(total_query)
-        grand_total = float(total_result.scalar() or 0)
-
-        return grand_total
-    except Exception as e:
-        print(f"[FINANCIALS] Error fetching expenses: {e}")
-        return 0.0
-
-
-async def get_active_users_count(
-    db: AsyncSession,
-    start_date,
-    end_date
-):
-    try:
-        # Active users: users with at least 1 login in the date range
-        subquery = select(ActiveUser.client_id).join(
-            Client, ActiveUser.client_id == Client.client_id
-        ).where(
-            and_(
-                func.date(ActiveUser.created_at) >= start_date,
-                func.date(ActiveUser.created_at) <= end_date,
-                Client.gym_id != 1
-            )
-        )
-
-        count_query = select(func.coalesce(func.count(distinct(ActiveUser.client_id)), 0)).where(
-            ActiveUser.client_id.in_(subquery)
-        )
-
-        count_result = await db.execute(count_query)
-        active_users_count = count_result.scalar() or 0
-
-        return int(active_users_count)
-    except Exception as e:
-        print(f"[FINANCIALS] Error fetching active users: {e}")
-        import traceback
-        traceback.print_exc()
-        return 0
-
-
-async def get_total_users_count(
-    db: AsyncSession,
-    start_date=None,
-    end_date=None
-):
-    try:
-        conditions = []
-        if start_date:
-            conditions.append(func.date(Client.created_at) >= start_date)
-        if end_date:
-            conditions.append(func.date(Client.created_at) <= end_date)
-
-        count_query = select(func.count()).select_from(Client)
-        if conditions:
-            count_query = count_query.where(and_(*conditions))
-        count_result = await db.execute(count_query)
-        total_users_count = count_result.scalar() or 0
-        return int(total_users_count)
-    except Exception as e:
-        print(f"[FINANCIALS] Error fetching total users: {e}")
-        return 0
-
-
-async def get_paying_users_count(
-    db: AsyncSession,
-    start_date,
-    end_date
-):
-    try:
-        conditions = [
-            func.date(Payment.created_at) >= start_date,
-            func.date(Payment.created_at) <= end_date
-        ]
-
-        paying_users_subquery = select(Payment.customer_id).join(
-            Order, Order.id == Payment.order_id
-        ).join(
-            OrderItem, OrderItem.order_id == Order.id
-        ).where(
-            and_(
-                OrderItem.gym_id.isnot(None),
-                OrderItem.gym_id != "1"
-            )
-        )
-
-        for condition in conditions:
-            paying_users_subquery = paying_users_subquery.where(condition)
-
-        paying_users_subquery = paying_users_subquery.distinct().alias("paying_users")
-
-        count_query = select(func.count()).select_from(paying_users_subquery)
-        count_result = await db.execute(count_query)
-        paying_users_count = count_result.scalar() or 0
-
-        return int(paying_users_count)
-    except Exception as e:
-        print(f"[FINANCIALS] Error fetching paying users: {e}")
-        import traceback
-        traceback.print_exc()
-        return 0
-
-
-def calculate_net_revenue(
-    fittbot_subscription_revenue,
-    gym_membership_revenue,
-    daily_pass_revenue,
-    sessions_revenue,
-    ai_credits_revenue,
-    ai_diet_coach_revenue,
-    membership_comm,
-    daily_pass_comm,
-    sessions_comm
-):
-    """
-    Calculate Net Revenue for all income categories.
-
-    Logic:
-    1. Fymble Subscription: Deduct 18% GST from total revenue (reverse GST)
-    2. AI Credits: Deduct 18% GST from total revenue (reverse GST)
-    3. Gym Membership: Deduct 18% GST on platform commission only
-    4. Daily Pass: Deduct 18% GST on platform commission only
-    5. Session: Deduct 18% GST on platform commission only
-
-    Returns:
-        - Individual net revenue for each category
-        - Total net revenue
-    """
-    GST_RATE = Decimal("0.18")  # 18% GST as Decimal
-
-    fittbot_subscription_revenue = Decimal(str(fittbot_subscription_revenue))
-    gym_membership_revenue = Decimal(str(gym_membership_revenue))
-    daily_pass_revenue = Decimal(str(daily_pass_revenue))
-    sessions_revenue = Decimal(str(sessions_revenue))
-    ai_credits_revenue = Decimal(str(ai_credits_revenue))
-    ai_diet_coach_revenue = Decimal(str(ai_diet_coach_revenue))
-    membership_comm = Decimal(str(membership_comm))
-    daily_pass_comm = Decimal(str(daily_pass_comm))
-    sessions_comm = Decimal(str(sessions_comm))
-
-    # 1. Fymble Subscription Net Revenue
-    # Use centralized Nutritionist Plan GST calculation from revenue service
-    nutritionist_calc = calculate_nutritionist_plan_net_revenue(int(fittbot_subscription_revenue))
-    fittbot_subscription_gst = Decimal(str(nutritionist_calc["gst"]))
-    fittbot_subscription_net = Decimal(str(nutritionist_calc["net_revenue"]))
-
-    # 2. AI Credits Net Revenue
-    # Use centralized AI Credits GST calculation from revenue service
-    ai_credits_calc = calculate_ai_credits_net_revenue(int(ai_credits_revenue))
-    ai_credits_gst = Decimal(str(ai_credits_calc["gst"]))
-    ai_credits_net = Decimal(str(ai_credits_calc["net_revenue"]))
-
-    # AI Diet Coach Net Revenue (same calculation as AI credits/nutritionist)
-    ai_diet_coach_calc = calculate_nutritionist_plan_net_revenue(int(ai_diet_coach_revenue))
-    ai_diet_coach_gst = Decimal(str(ai_diet_coach_calc["gst"]))
-    ai_diet_coach_net = Decimal(str(ai_diet_coach_calc["net_revenue"]))
-
-    # 3. Gym Membership Net Revenue
-    gym_membership_gst_on_comm = membership_comm * GST_RATE
-    gym_membership_net = gym_membership_revenue - gym_membership_gst_on_comm
-
-    # 4. Daily Pass Net Revenue
-    daily_pass_gst_on_comm = daily_pass_comm * GST_RATE
-    daily_pass_net = daily_pass_revenue - daily_pass_gst_on_comm
-
-    # 5. Session Net Revenue
-    sessions_gst_on_comm = sessions_comm * GST_RATE
-    sessions_net = sessions_revenue - sessions_gst_on_comm
-
-    total_net_revenue = (
-        fittbot_subscription_net +
-        ai_credits_net +
-        ai_diet_coach_net +
-        gym_membership_net +
-        daily_pass_net +
-        sessions_net
-    )
-
-    return {
-        "fittbot_subscription": {
-            "revenue": float(fittbot_subscription_revenue),
-            "gst": float(fittbot_subscription_gst),
-            "net_revenue": float(fittbot_subscription_net)
-        },
-        "ai_credits": {
-            "revenue": float(ai_credits_revenue),
-            "gst": float(ai_credits_gst),
-            "net_revenue": float(ai_credits_net)
-        },
-        "ai_diet_coach": {
-            "revenue": float(ai_diet_coach_revenue),
-            "gst": float(ai_diet_coach_gst),
-            "net_revenue": float(ai_diet_coach_net)
-        },
-        "gym_membership": {
-            "revenue": float(gym_membership_revenue),
-            "commission": float(membership_comm),
-            "gst_on_comm": float(gym_membership_gst_on_comm),
-            "net_revenue": float(gym_membership_net)
-        },
-        "daily_pass": {
-            "revenue": float(daily_pass_revenue),
-            "commission": float(daily_pass_comm),
-            "gst_on_comm": float(daily_pass_gst_on_comm),
-            "net_revenue": float(daily_pass_net)
-        },
-        "sessions": {
-            "revenue": float(sessions_revenue),
-            "commission": float(sessions_comm),
-            "gst_on_comm": float(sessions_gst_on_comm),
-            "net_revenue": float(sessions_net)
-        },
-        "total_net_revenue": float(total_net_revenue)
-    }
+    from app.fittbot_admin_api.revenue_service import get_financial_metrics
+    metrics = await get_financial_metrics(db, start_date, end_date)
+    return metrics["total_expenses"]
 
 
 @router.get("/overview")
@@ -335,23 +116,21 @@ async def get_financials_overview(
         daily_pass_gross_profit = daily_pass_comm - net_revenue_data["daily_pass"]["gst_on_comm"]
         sessions_gross_profit = sessions_comm - net_revenue_data["sessions"]["gst_on_comm"]
 
-        total_gross_profit = fittbot_subscription_gross_profit + ai_credits_gross_profit + ai_diet_coach_gross_profit + gym_membership_gross_profit + daily_pass_gross_profit + sessions_gross_profit
-
-        # Get Total Expenses
-        total_expenses = await get_total_expenses(db, start_date_obj, end_date_obj)
-
-        # Get Total Users for ARPU calculation
-        total_users_count = await get_total_users_count(db, start_date_obj, end_date_obj)
+        # Get Comprehensive Financial Metrics
+        fin_metrics = await get_financial_metrics(db, start_date_obj, end_date_obj)
         
-        active_users_count = await get_active_users_count(db, start_date_obj, end_date_obj)
-        paying_users_count = await get_paying_users_count(db, start_date_obj, end_date_obj)
-
-        gross_profit_rupees = paise_to_rupees(total_gross_profit)
-        ebita = gross_profit_rupees - total_expenses
-
-        net_revenue_rupees = paise_to_rupees(net_revenue_data["total_net_revenue"])
-        arpu = net_revenue_rupees / total_users_count if total_users_count > 0 else 0
-        arppu = net_revenue_rupees / paying_users_count if paying_users_count > 0 else 0
+        gross_profit_rupees     = fin_metrics["gross_profit"]
+        gross_margin            = fin_metrics["gross_margin"]
+        gross_margin_percentage = fin_metrics["gross_margin_percentage"]
+        total_expenses          = fin_metrics["total_expenses"]
+        ebita                   = fin_metrics["ebita"]
+        total_users_count       = fin_metrics["total_users"]
+        paying_users_count      = fin_metrics["paying_users"]
+        active_users_count      = fin_metrics["active_users"]
+        arpu                    = fin_metrics["arpu"]
+        arppu                   = fin_metrics["arppu"]
+        net_revenue_rupees      = fin_metrics["total_net_revenue"]
+        cogs_expenses           = fin_metrics.get("cogs_expenses", 0) # Added COGS
 
         return {
             "success": True,
@@ -473,11 +252,17 @@ async def get_financials_overview(
                         "gst_on_comm": paise_to_rupees(net_revenue_data["sessions"]["gst_on_comm"]),
                         "gross_profit": paise_to_rupees(sessions_gross_profit)
                     },
-                    "total_gross_profit": paise_to_rupees(total_gross_profit)
+                    "total_gross_profit": round(gross_profit_rupees, 2)
                 },
-                "grossProfit": paise_to_rupees(total_gross_profit),
+                "grossProfit": round(gross_profit_rupees, 2),
+                "grossMargin": {
+                    "gross_profit": round(gross_profit_rupees, 2),
+                    "aws_cost": round(cogs_expenses, 2),
+                    "gross_margin": round(gross_margin, 2),
+                    "gross_margin_percentage": gross_margin_percentage
+                },
                 "ebita": {
-                    "gross_profit": paise_to_rupees(total_gross_profit),
+                    "gross_profit": round(gross_profit_rupees, 2),
                     "total_expenses": round(total_expenses, 2),
                     "ebita": round(ebita, 2)
                 },

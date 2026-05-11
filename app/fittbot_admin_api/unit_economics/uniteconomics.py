@@ -12,6 +12,10 @@ from app.fittbot_api.v1.payments.models.payments import Payment
 from app.fittbot_api.v1.payments.models.orders import Order, OrderItem
 from app.models.dailypass_models import DailyPass, get_dailypass_session
 from app.fittbot_admin_api.purchases.purchases import compute_gmv_totals
+from app.fittbot_admin_api.revenue_service import (
+    get_gross_margin_data, 
+    get_financial_metrics
+)
 
 router = APIRouter(prefix="/api/admin/unit-economics", tags=["UnitEconomics"])
 
@@ -422,62 +426,6 @@ async def get_unit_economics(
 
     logging.info(f"[UnitEconomics] LTV calculated: {ltv}")
 
-    # ========== D7 RETENTION CALCULATION ==========
-    # Same logic as D30 but with weeks instead of months
-    # Week N-2 = 2nd previous completed week
-    # Week N-1 = Most recent completed week
-
-    # Get current day of week (0 = Monday, 6 = Sunday)
-    current_weekday = today.weekday()
-
-    # Calculate start of current week (Monday)
-    current_week_start = today - timedelta(days=current_weekday)
-
-    # Week N-1 (previous completed week)
-    week_n1_start = current_week_start - timedelta(weeks=1)
-    week_n1_end = current_week_start - timedelta(days=1)
-
-    # Week N-2 (week before that)
-    week_n2_start = current_week_start - timedelta(weeks=2)
-    week_n2_end = week_n1_start - timedelta(days=1)
-
-    logging.info(f"[UnitEconomics] Week N-2: {week_n2_start} to {week_n2_end}")
-    logging.info(f"[UnitEconomics] Week N-1: {week_n1_start} to {week_n1_end}")
-
-    # Step 1: Get Week N-2 Active Users
-    week_n2_users_result = await db.execute(
-        select(ActiveUser.client_id).where(
-            and_(
-                func.date(ActiveUser.created_at) >= week_n2_start,
-                func.date(ActiveUser.created_at) <= week_n2_end
-            )
-        ).distinct()
-    )
-    week_n2_client_ids = set([row[0] for row in week_n2_users_result.fetchall()])
-    week_n2_count = len(week_n2_client_ids)
-
-    logging.info(f"[UnitEconomics] Week N-2 active users: {week_n2_count}")
-
-    # Step 2: Get Week N-1 Active Users
-    week_n1_users_result = await db.execute(
-        select(ActiveUser.client_id).where(
-            and_(
-                func.date(ActiveUser.created_at) >= week_n1_start,
-                func.date(ActiveUser.created_at) <= week_n1_end
-            )
-        ).distinct()
-    )
-    week_n1_client_ids = set([row[0] for row in week_n1_users_result.fetchall()])
-    week_n1_count = len(week_n1_client_ids)
-
-    logging.info(f"[UnitEconomics] Week N-1 active users: {week_n1_count}")
-
-    # Step 3: Find D7 Retained Users (present in both Week N-2 and Week N-1)
-    d7_retained_client_ids = week_n2_client_ids.intersection(week_n1_client_ids)
-    d7_retained_count = len(d7_retained_client_ids)
-
-    logging.info(f"[UnitEconomics] D7 Retained users: {d7_retained_count}")
-
     # Combine all data
     analytics_data = {
         # CAC Data
@@ -488,14 +436,67 @@ async def get_unit_economics(
         "ltv": round(ltv, 2),
         "cohortRetentionRate": round(churn_rate, 4),
         "retainedUsers": retained_count,
-        # D7 Retention Data
-        "d7_retained_users": d7_retained_count,
         # Filters
         "filters": {
             "startDate": start_date_obj.isoformat(),
             "endDate": end_date_obj.isoformat()
         }
     }
+
+    # ========== ACTIVE USERS (MAU & WAU) ==========
+    # Matches logic in /api/admin/users-stats/data strictly
+    try:
+        # Helper to match users-stats query exactly
+        async def fetch_active_users(start_date_val, end_date_val):
+            # Convert date to datetime for precise filtering matching users_stats.py
+            s_dt = datetime.combine(start_date_val, datetime.min.time())
+            e_dt = datetime.combine(end_date_val, datetime.max.time())
+            
+            # Match Query 2 from users_stats.py
+            active_subquery = select(ActiveUser.client_id).join(
+                Client, ActiveUser.client_id == Client.client_id
+            ).where(
+                and_(
+                    ActiveUser.created_at >= s_dt,
+                    ActiveUser.created_at <= e_dt,
+                    or_(Client.gym_id != 1, Client.gym_id.is_(None))
+                )
+            )
+
+            active_query = select(
+                func.coalesce(func.count(func.distinct(ActiveUser.client_id)), 0)
+            ).where(
+                ActiveUser.client_id.in_(active_subquery)
+            )
+            
+            res = await db.execute(active_query)
+            return res.scalar() or 0
+
+        # 1. Monthly Active Users (Last completed month)
+        analytics_data["monthlyActiveUsers"] = await fetch_active_users(
+            most_recent_completed_month_start, 
+            most_recent_completed_month_end
+        )
+
+        # 2. Weekly Active Users (Previous completed week: Mon-Sun)
+        current_weekday = today.weekday()
+        current_week_start = today - timedelta(days=current_weekday)
+        prev_week_start = current_week_start - timedelta(weeks=1)
+        prev_week_end = current_week_start - timedelta(days=1)
+        
+        logging.info(f"[UnitEconomics] Previous Week (WAU): {prev_week_start} to {prev_week_end}")
+        
+        analytics_data["weeklyActiveUsers"] = await fetch_active_users(
+            prev_week_start, 
+            prev_week_end
+        )
+
+        # 3. Daily Active Users (Today)
+        analytics_data["dailyActiveUsers"] = await fetch_active_users(today, today)
+    except Exception as e:
+        logging.error(f"[UnitEconomics] Active users calculation error: {e}")
+        analytics_data["monthlyActiveUsers"] = 0
+        analytics_data["weeklyActiveUsers"] = 0
 
     # ========== GMV CALCULATION ==========
     # Delegates to shared helper — guarantees identical values to /api/admin/purchases/gmv-summary
@@ -512,6 +513,22 @@ async def get_unit_economics(
         }
 
     analytics_data["gmv"] = gmv
+
+    # ========== FINANCIAL METRICS (EBITA, ARPU, ARPPU, GROSS MARGIN) ==========
+    try:
+        fin_metrics = await get_financial_metrics(db, start_date_obj, end_date_obj)
+        analytics_data["grossMarginPercentage"] = fin_metrics["gross_margin_percentage"]
+        analytics_data["ebita"] = fin_metrics["ebita"]
+        analytics_data["arpu"] = fin_metrics["arpu"]
+        analytics_data["arppu"] = fin_metrics["arppu"]
+        analytics_data["totalNetRevenue"] = fin_metrics["total_net_revenue"]
+        analytics_data["totalPayingUsers"] = fin_metrics["paying_users"]
+    except Exception as e:
+        logging.error(f"[UnitEconomics] Financial metrics error: {e}")
+        analytics_data["grossMarginPercentage"] = None
+        analytics_data["ebita"] = 0
+        analytics_data["arpu"] = 0
+        analytics_data["arppu"] = 0
 
     return {
         "success": True,
