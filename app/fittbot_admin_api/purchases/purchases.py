@@ -1406,8 +1406,6 @@ async def export_purchase_count_summary(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Export error: {str(e)}")
 
-
-
 @router.get("/ai-credits")
 async def get_ai_credits(
     page: int = Query(1, ge=1, description="Page number"),
@@ -3893,3 +3891,148 @@ async def export_ai_diet_coach(
             status_code=500,
             detail="An error occurred while exporting AI diet coach"
         )
+
+
+@router.get("/client-purchase-summary/{client_id}")
+async def get_client_purchase_summary(
+    client_id: int,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Get an aggregated, grouped summary of a client's purchases.
+    Groups gym-related purchases by gym name, and others by category.
+    Optimized to use fully async execution with zero N+1 queries.
+    """
+    try:
+        # We run several aggregate queries concurrently or sequentially
+
+        # 1. Daily Pass grouped by Gym
+        dp_stmt = (
+            select(
+                Gym.name.label("gym_name"),
+                func.count(DailyPass.id).label("count")
+            )
+            .select_from(DailyPass)
+            .join(Gym, cast(DailyPass.gym_id, Integer) == Gym.gym_id)
+            .where(
+                DailyPass.gym_id != "1",
+                or_(
+                    DailyPass.client_id == str(client_id),
+                    cast(DailyPass.client_id, Integer) == client_id
+                )
+            )
+            .group_by(Gym.name)
+        )
+
+        # 2. Fitness Class (SessionPurchase) grouped by Gym
+        sess_stmt = (
+            select(
+                Gym.name.label("gym_name"),
+                func.count(SessionPurchase.id).label("count")
+            )
+            .select_from(SessionPurchase)
+            .join(Gym, SessionPurchase.gym_id == Gym.gym_id)
+            .where(
+                SessionPurchase.status == "paid",
+                SessionPurchase.gym_id != 1,
+                SessionPurchase.client_id == client_id
+            )
+            .group_by(Gym.name)
+        )
+
+        # 3. Gym Membership (Orders) grouped by Gym
+        gym_meta_cond = or_(
+            func.json_unquote(func.json_extract(Order.order_metadata, "$.audit.source")) == "dailypass_checkout_api",
+            func.json_unquote(func.json_extract(Order.order_metadata, "$.order_info.flow")) == "unified_gym_membership_with_sub",
+            func.json_unquote(func.json_extract(Order.order_metadata, "$.order_info.flow")) == "unified_gym_membership_with_free_fittbot"
+        )
+        
+        gm_stmt = (
+            select(
+                Gym.name.label("gym_name"),
+                func.count(func.distinct(Order.id)).label("count")
+            )
+            .select_from(Payment)
+            .join(Order, Order.id == Payment.order_id)
+            .join(OrderItem, OrderItem.order_id == Order.id)
+            .join(Gym, cast(OrderItem.gym_id, Integer) == Gym.gym_id)
+            .where(
+                Payment.status == "captured",
+                Order.status == "paid",
+                cast(Order.customer_id, Integer) == client_id,
+                OrderItem.gym_id.isnot(None),
+                OrderItem.gym_id != "",
+                OrderItem.gym_id != "1",
+                gym_meta_cond
+            )
+            .group_by(Gym.name)
+        )
+
+        # 4. Nutritionist Plans (Payments)
+        nutri_stmt = (
+            select(func.count(Payment.id).label("count"))
+            .select_from(Payment)
+            .where(
+                Payment.status == "captured",
+                Payment.customer_id == str(client_id),
+                or_(
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "nutrition_purchase_googleplay",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "nutrition_package_razorpay",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "basic_nutrition_plan",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "expert_nutrition_plan",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "elite_nutrition_plan"
+                )
+            )
+        )
+
+        # 5. AI Credits
+        ai_stmt = (
+            select(func.count(Payment.id).label("count"))
+            .select_from(Payment)
+            .where(
+                Payment.status == "captured",
+                Payment.customer_id == str(client_id),
+                or_(
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "food_scanner_credits",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "food_scanner_credits_razorpay"
+                )
+            )
+        )
+
+        # 6. AI Diet Coach
+        ai_diet_stmt = (
+            select(func.count(Payment.id).label("count"))
+            .select_from(Payment)
+            .where(
+                Payment.status == "captured",
+                Payment.customer_id == str(client_id),
+                func.json_extract(Payment.payment_metadata, "$.flow") == "ai_diet_coach"
+            )
+        )
+
+        dp_res = await db.execute(dp_stmt)
+        sess_res = await db.execute(sess_stmt)
+        gm_res = await db.execute(gm_stmt)
+        nutri_res = await db.execute(nutri_stmt)
+        ai_res = await db.execute(ai_stmt)
+        ai_diet_res = await db.execute(ai_diet_stmt)
+
+        response_data = {
+            "Daily Pass": [{"gym_name": row.gym_name, "count": row.count} for row in dp_res.fetchall()],
+            "Fitness Class": [{"gym_name": row.gym_name, "count": row.count} for row in sess_res.fetchall()],
+            "Gym Membership": [{"gym_name": row.gym_name, "count": row.count} for row in gm_res.fetchall()],
+            "Nutritionist Plans": {"count": nutri_res.scalar() or 0},
+            "AI Credits": {"count": ai_res.scalar() or 0},
+            "AI Diet Coach": {"count": ai_diet_res.scalar() or 0}
+        }
+
+        return {
+            "success": True,
+            "data": response_data,
+            "message": "Client purchase summary fetched successfully"
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error fetching client summary: {str(e)}")
