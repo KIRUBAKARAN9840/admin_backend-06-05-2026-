@@ -2601,6 +2601,7 @@ async def export_user_purchases(
         subscription_resp = await get_user_fittbot_subscription(user_id, db)
         membership_resp = await get_user_gym_membership(user_id, db)
         ai_credits_resp = await get_user_ai_credits_purchases(user_id, db)
+        ai_diet_coach_resp = await get_user_ai_diet_coach_purchases(user_id, db)
 
         # Create Excel in memory
         output = io.BytesIO()
@@ -2650,6 +2651,15 @@ async def export_user_purchases(
                 df_ai = df_ai[[c for c in cols if c in df_ai.columns]]
                 df_ai["amount"] = df_ai["amount"] / 100.0 if "amount" in df_ai.columns else 0
                 df_ai.to_excel(writer, sheet_name='AI Credits', index=False)
+
+            # 6. AI Diet Coach Sheet
+            ai_diet_data = ai_diet_coach_resp.get("data", [])
+            if ai_diet_data:
+                df_ai_diet = pd.DataFrame(ai_diet_data)
+                cols = ["captured_at", "amount", "status"]
+                df_ai_diet = df_ai_diet[[c for c in cols if c in df_ai_diet.columns]]
+                df_ai_diet["amount"] = df_ai_diet["amount"] / 100.0 if "amount" in df_ai_diet.columns else 0
+                df_ai_diet.to_excel(writer, sheet_name='AI Diet Coach', index=False)
 
         output.seek(0)
         filename = f"purchase_history_user_{user_id}_{datetime.now().strftime('%Y%m%d')}.xlsx"
@@ -2733,6 +2743,71 @@ async def get_user_ai_credits_purchases(
         }
 
 
+@router.get("/{user_id}/ai-diet-coach-purchases")
+async def get_user_ai_diet_coach_purchases(
+    user_id: int,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get AI Diet Coach purchases for a specific user from payments table where flow is ai_diet_coach"""
+    try:
+        user_id_str = str(user_id)
+        
+        stmt = (
+            select(Payment)
+            .where(
+                and_(
+                    Payment.customer_id == user_id_str,
+                    Payment.status == "captured"
+                )
+            )
+            .order_by(Payment.captured_at.desc())
+        )
+
+        result = await db.execute(stmt)
+        payments = result.scalars().all()
+
+        import json
+
+        ai_diet_list = []
+        for payment in payments:
+            metadata = payment.payment_metadata
+            
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except json.JSONDecodeError:
+                    metadata = {}
+            elif not isinstance(metadata, dict):
+                metadata = {}
+            
+            flow = metadata.get("flow", "")
+            if flow == "ai_diet_coach":
+                ai_diet_list.append({
+                    "id": payment.id,
+                    "amount": float(payment.amount_minor),
+                    "status": payment.status,
+                    "captured_at": payment.captured_at.isoformat() if payment.captured_at else (payment.created_at.isoformat() if payment.created_at else None),
+                    "created_at": payment.created_at.isoformat() if payment.created_at else None,
+                })
+
+        return {
+            "success": True,
+            "data": ai_diet_list,
+            "total": len(ai_diet_list),
+            "message": f"AI Diet Coach purchases fetched successfully for customer_id {user_id_str}"
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "data": [],
+            "message": f"Error fetching AI Diet Coach: {str(e)}",
+            "total": 0
+        }
+
+
 @router.get("/{user_id}/last-purchases")
 async def get_user_last_purchases(
     user_id: int,
@@ -2756,7 +2831,8 @@ async def get_user_last_purchases(
             "session": None,
             "membership": None,
             "subscription": None,
-            "ai_credits": None
+            "ai_credits": None,
+            "ai_diet_coach": None
         }
 
         # 1. Get latest Daily Pass
@@ -2916,6 +2992,44 @@ async def get_user_last_purchases(
                 if metadata.get("flow") in ("food_scanner_credits", "food_scanner_credits_razorpay"):
                     purchases["ai_credits"] = {
                         "type": "AI Credits",
+                        "purchase_date": payment.captured_at.isoformat() if payment.captured_at else (payment.created_at.isoformat() if payment.created_at else None),
+                        "gym_name": None,
+                        "amount": float(payment.amount_minor) / 100.0,
+                        "status": payment.status
+                    }
+                    break  # Got the latest one, so stop looking
+        except Exception as e:
+            pass
+
+        # 6. Get latest AI Diet Coach purchase
+        try:
+            import json
+            
+            ai_diet_stmt = (
+                select(Payment)
+                .where(
+                    and_(
+                        Payment.customer_id == user_id_str,
+                        Payment.status == "captured"
+                    )
+                )
+                .order_by(Payment.captured_at.desc())
+            )
+            
+            ai_diet_result = await db.execute(ai_diet_stmt)
+            for payment in ai_diet_result.scalars():
+                metadata = payment.payment_metadata
+                if isinstance(metadata, str):
+                    try:
+                        metadata = json.loads(metadata)
+                    except json.JSONDecodeError:
+                        metadata = {}
+                elif not isinstance(metadata, dict):
+                    metadata = {}
+
+                if metadata.get("flow") == "ai_diet_coach":
+                    purchases["ai_diet_coach"] = {
+                        "type": "AI Diet Coach",
                         "purchase_date": payment.captured_at.isoformat() if payment.captured_at else (payment.created_at.isoformat() if payment.created_at else None),
                         "gym_name": None,
                         "amount": float(payment.amount_minor) / 100.0,
