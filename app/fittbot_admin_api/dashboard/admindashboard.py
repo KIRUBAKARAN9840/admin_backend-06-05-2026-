@@ -970,14 +970,16 @@ async def get_revenue_analytics(
                 "sessions": revenue_data.source_split["sessions"],
                 "fittbot_subscription": revenue_data.source_split["fittbot_subscription"],
                 "gym_membership": revenue_data.source_split["gym_membership"],
-                "ai_credits": revenue_data.source_split.get("ai_credits", 0)
+                "ai_credits": revenue_data.source_split.get("ai_credits", 0),
+                "ai_diet_coach": revenue_data.source_split.get("ai_diet_coach", 0)
             },
             "sourceSplitRupees": {
                 "daily_pass": revenue_data.source_split_rupees.get("daily_pass", 0),
                 "sessions": revenue_data.source_split_rupees.get("sessions", 0),
                 "fittbot_subscription": revenue_data.source_split_rupees.get("fittbot_subscription", 0),
                 "gym_membership": revenue_data.source_split_rupees.get("gym_membership", 0),
-                "ai_credits": revenue_data.source_split_rupees.get("ai_credits", 0)
+                "ai_credits": revenue_data.source_split_rupees.get("ai_credits", 0),
+                "ai_diet_coach": revenue_data.source_split_rupees.get("ai_diet_coach", 0)
             },
             "revenueOverTime": [
                 {
@@ -1888,6 +1890,7 @@ async def get_purchase_analytics(
             "sessions": {"purchases": 0, "unique_users": 0, "purchases_over_time": []},
             "fittbot_subscription": {"purchases": 0, "unique_users": 0, "purchases_over_time": []},
             "ai_credits": {"purchases": 0, "unique_users": 0, "purchases_over_time": []},
+            "ai_diet_coach": {"purchases": 0, "unique_users": 0, "purchases_over_time": []},
             "gym_membership": {"purchases": 0, "unique_users": 0, "purchases_over_time": []}
         }
 
@@ -2410,6 +2413,90 @@ async def get_purchase_analytics(
                 logging.error(f"Purchase analytics - AI Credits error: {str(e)}")
                 pass
 
+        # 3.6. AI DIET COACH PURCHASES
+        if (not source or source == "ai_diet_coach") and not gym_id:
+            try:
+                ai_diet_coach_stmt = (
+                    select(
+                        func.date(Payment.captured_at).label('purchase_date'),
+                        func.count().label('purchase_count'),
+                        func.count(distinct(Payment.customer_id)).label('unique_users')
+                    )
+                    .select_from(Payment)
+                    .outerjoin(Client, Payment.customer_id == Client.client_id)
+                    .where(Payment.status == "captured")
+                    .where(func.json_extract(Payment.payment_metadata, '$.flow') == 'ai_diet_coach')
+                    .where(func.date(Payment.captured_at) >= start_date_obj)
+                    .where(func.date(Payment.captured_at) <= end_date_obj)
+                    .where(~Client.contact.in_(EXCLUDED_CONTACTS))
+                )
+
+                if location_client_ids:
+                    location_customer_ids = {str(cid) for cid in location_client_ids}
+                    ai_diet_coach_stmt = ai_diet_coach_stmt.where(Payment.customer_id.in_(location_customer_ids))
+
+                ai_diet_coach_stmt = ai_diet_coach_stmt.group_by(func.date(Payment.captured_at))
+
+                result = await db.execute(ai_diet_coach_stmt)
+                ai_diet_coach_results = result.all()
+
+                # Get total unique users across all dates
+                ai_diet_coach_unique_users_stmt = (
+                    select(func.count(distinct(Payment.customer_id)))
+                    .select_from(Payment)
+                    .outerjoin(Client, Payment.customer_id == Client.client_id)
+                    .where(Payment.status == "captured")
+                    .where(func.json_extract(Payment.payment_metadata, '$.flow') == 'ai_diet_coach')
+                    .where(func.date(Payment.captured_at) >= start_date_obj)
+                    .where(func.date(Payment.captured_at) <= end_date_obj)
+                    .where(~Client.contact.in_(EXCLUDED_CONTACTS))
+                )
+
+                if location_client_ids:
+                    location_customer_ids = {str(cid) for cid in location_client_ids}
+                    ai_diet_coach_unique_users_stmt = ai_diet_coach_unique_users_stmt.where(Payment.customer_id.in_(location_customer_ids))
+
+                ai_diet_coach_unique_result = await db.execute(ai_diet_coach_unique_users_stmt)
+                ai_diet_coach_unique_users_count = ai_diet_coach_unique_result.scalar() or 0
+
+                ai_diet_total_stmt = (
+                    select(func.count(Payment.id))
+                    .select_from(Payment)
+                    .outerjoin(Client, Payment.customer_id == Client.client_id)
+                    .where(Payment.status == "captured")
+                    .where(func.json_extract(Payment.payment_metadata, '$.flow') == 'ai_diet_coach')
+                    .where(~Client.contact.in_(EXCLUDED_CONTACTS))
+                )
+                if start_date:
+                    ai_diet_total_stmt = ai_diet_total_stmt.where(func.date(Payment.captured_at) >= start_date_obj)
+                if end_date:
+                    ai_diet_total_stmt = ai_diet_total_stmt.where(func.date(Payment.captured_at) <= end_date_obj)
+                if location_client_ids:
+                    location_customer_ids = {str(cid) for cid in location_client_ids}
+                    ai_diet_total_stmt = ai_diet_total_stmt.where(Payment.customer_id.in_(location_customer_ids))
+                    
+                ai_diet_total_result = await db.execute(ai_diet_total_stmt)
+                ai_diet_coach_total_purchases = ai_diet_total_result.scalar() or 0
+
+                for row in ai_diet_coach_results:
+                    date_key = row.purchase_date.isoformat() if row.purchase_date else None
+                    if date_key:
+                        if date_key not in all_purchases_over_time:
+                            all_purchases_over_time[date_key] = 0
+                        all_purchases_over_time[date_key] += row.purchase_count
+                        category_breakdown["ai_diet_coach"]["purchases_over_time"].append({
+                            "date": date_key,
+                            "purchases": row.purchase_count
+                        })
+
+                category_breakdown["ai_diet_coach"]["purchases"] = ai_diet_coach_total_purchases
+                category_breakdown["ai_diet_coach"]["unique_users"] = ai_diet_coach_unique_users_count
+
+            except Exception as e:
+                import logging
+                logging.error(f"Purchase analytics - AI Diet Coach error: {str(e)}")
+                pass
+
         # 4. GYM MEMBERSHIP PURCHASES
         # GMV fix: SQL EXISTS subquery with Gym JOIN + Client JOIN (replaces Python-loop in-memory filtering)
         if not source or source == "gym_membership":
@@ -2900,7 +2987,8 @@ async def get_booking_averages(
                 "sessions": 0,
                 "gym_membership": 0,
                 "fittbot_subscription": 0,
-                "ai_credits": 0
+                "ai_credits": 0,
+                "ai_diet_coach": 0
             }
 
             # 1. Daily Pass purchases
@@ -3060,13 +3148,38 @@ async def get_booking_averages(
             except Exception:
                 pass
 
+            # 6. AI Diet Coach purchases
+            try:
+                EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+                ai_diet_start = datetime.combine(start_date, datetime.min.time())
+                ai_diet_end = datetime.combine(end_date, datetime.min.time()).replace(hour=23, minute=59, second=59)
+
+                ai_diet_stmt = (
+                    select(func.count(Payment.id))
+                    .select_from(Payment)
+                    .outerjoin(Client, Payment.customer_id == Client.client_id)
+                    .where(
+                        and_(
+                            Payment.status == "captured",
+                            func.json_extract(Payment.payment_metadata, '$.flow') == 'ai_diet_coach',
+                            Payment.captured_at >= ai_diet_start,
+                            Payment.captured_at <= ai_diet_end,
+                            ~Client.contact.in_(EXCLUDED_CONTACTS)
+                        )
+                    )
+                )
+                ai_diet_result = await db.execute(ai_diet_stmt)
+                result["ai_diet_coach"] = ai_diet_result.scalar() or 0
+            except Exception:
+                pass
+
             return result
 
         # Helper to calculate average from list of source-wise data
         def calculate_source_averages(data_list):
             """Calculate average for each source across data points."""
             if not data_list:
-                return {"daily_pass": 0, "sessions": 0, "gym_membership": 0, "fittbot_subscription": 0, "ai_credits": 0}
+                return {"daily_pass": 0, "sessions": 0, "gym_membership": 0, "fittbot_subscription": 0, "ai_credits": 0, "ai_diet_coach": 0}
 
             num_points = len(data_list)
             return {
@@ -3074,7 +3187,8 @@ async def get_booking_averages(
                 "sessions": round(sum(d["sessions"] for d in data_list) / num_points, 2),
                 "gym_membership": round(sum(d["gym_membership"] for d in data_list) / num_points, 2),
                 "fittbot_subscription": round(sum(d["fittbot_subscription"] for d in data_list) / num_points, 2),
-                "ai_credits": round(sum(d["ai_credits"] for d in data_list) / num_points, 2)
+                "ai_credits": round(sum(d["ai_credits"] for d in data_list) / num_points, 2),
+                "ai_diet_coach": round(sum(d.get("ai_diet_coach", 0) for d in data_list) / num_points, 2)
             }
 
         # Calculate Daily Average (last 3 days) with source breakdown

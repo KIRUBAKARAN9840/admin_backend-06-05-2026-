@@ -922,7 +922,8 @@ async def get_detailed_revenue_with_breakdowns(
         "sessions": source_revenue_paisa["sessions"] / 100,  # Convert from paisa to rupees
         "fittbot_subscription": source_revenue_paisa["fittbot_subscription"] / 100,
         "gym_membership": source_revenue_paisa["gym_membership"] / 100,
-        "ai_credits": source_revenue_paisa["ai_credits"] / 100
+        "ai_credits": source_revenue_paisa["ai_credits"] / 100,
+        "ai_diet_coach": source_revenue_paisa["ai_diet_coach"] / 100
     }
 
     return DetailedRevenueBreakdown(

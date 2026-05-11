@@ -938,12 +938,34 @@ async def compute_gmv_totals(db: AsyncSession, start_date_obj, end_date_obj):
         .where(~Client.contact.in_(EXCLUDED_CONTACTS))
     )).one()
 
+    # AI Diet Coach
+    ai_diet_conditions = [
+        Payment.status == "captured",
+        func.json_extract(Payment.payment_metadata, "$.flow") == "ai_diet_coach"
+    ]
+    if start_date_obj:
+        ai_diet_conditions.append(func.date(Payment.captured_at) >= start_date_obj)
+    if end_date_obj:
+        ai_diet_conditions.append(func.date(Payment.captured_at) <= end_date_obj)
+
+    ai_diet_row = (await db.execute(
+        select(
+            func.count(Payment.id).label("count"),
+            func.coalesce(func.sum(Payment.amount_minor / 100.0), 0).label("total_revenue")
+        )
+        .select_from(Payment)
+        .outerjoin(Client, Payment.customer_id == Client.client_id)
+        .where(*ai_diet_conditions)
+        .where(~Client.contact.in_(EXCLUDED_CONTACTS))
+    )).one()
+
     return {
         "daily_pass":     {"count": dp_row.count,    "total_revenue": float(dp_row.total_revenue)},
         "session":        {"count": sess_row.count,  "total_revenue": float(sess_row.total_revenue)},
         "nutrition_plan": {"count": nutri_row.count, "total_revenue": float(nutri_row.total_revenue)},
         "gym_membership": {"count": gym_row.count,   "total_revenue": float(gym_row.total_revenue)},
         "ai_credits":     {"count": ai_row.count,    "total_revenue": float(ai_row.total_revenue)},
+        "ai_diet_coach":  {"count": ai_diet_row.count, "total_revenue": float(ai_diet_row.total_revenue)},
     }
 
 
@@ -1540,6 +1562,288 @@ async def get_ai_credits(
         raise HTTPException(
             status_code=500,
             detail=f"Error fetching AI credits purchases: {str(e)}"
+        )
+
+
+@router.get("/ai-diet-coach")
+async def get_ai_diet_coach(
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(10, ge=1, le=100, description="Items per page"),
+    search: Optional[str] = Query(None, description="Search by client name or mobile"),
+    start_date: Optional[str] = Query(None, description="Filter by start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Filter by end date (YYYY-MM-DD)"),
+    sort_order: str = Query("desc", description="Sort order for purchase date"),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Get list of AI Diet Coach purchases.
+    Fetches from payments.payments table where payment_metadata['flow'] is 'ai_diet_coach'.
+    """
+    try:
+        import math
+
+        start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
+        end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else None
+
+        ai_flow_cond = (func.json_extract(Payment.payment_metadata, "$.flow") == "ai_diet_coach")
+
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+
+        query = (
+            select(
+                Payment.id.label("purchase_id"),
+                Payment.customer_id.label("customer_id"),
+                Payment.captured_at.label("purchased_at"),
+                Payment.amount_minor.label("amount_minor"),
+                Payment.payment_metadata.label("payment_metadata"),
+                Client.client_id.label("client_id"),
+                Client.name.label("client_name"),
+                Client.contact.label("client_contact"),
+            )
+            .select_from(Payment)
+            .outerjoin(Client, Payment.customer_id == Client.client_id)
+            .where(Payment.status == "captured")
+            .where(ai_flow_cond)
+            .where(~Client.contact.in_(EXCLUDED_CONTACTS))
+        )
+
+        if start_date_obj:
+            query = query.where(func.date(Payment.captured_at) >= start_date_obj)
+        if end_date_obj:
+            query = query.where(func.date(Payment.captured_at) <= end_date_obj)
+
+        if search:
+            search_term = f"%{search.lower()}%"
+            query = query.where(
+                or_(
+                    func.lower(Client.name).like(search_term),
+                    Client.contact.like(search_term)
+                )
+            )
+
+        count_subquery = query.subquery()
+        count_stmt = select(func.count()).select_from(count_subquery)
+        count_result = await db.execute(count_stmt)
+        total_count = count_result.scalar() or 0
+
+        if total_count == 0:
+            return {
+                "success": True,
+                "data": {
+                    "purchases": [],
+                    "total": 0,
+                    "page": page,
+                    "limit": limit,
+                    "totalPages": 0,
+                    "hasNext": False,
+                    "hasPrev": False
+                },
+                "message": "No AI diet coach purchases found"
+            }
+
+        if sort_order == "asc":
+            query = query.order_by(asc(Payment.captured_at))
+        else:
+            query = query.order_by(desc(Payment.captured_at))
+
+        offset = (page - 1) * limit
+        query = query.offset(offset).limit(limit)
+
+        result = await db.execute(query)
+        rows = result.all()
+
+        purchases = []
+        for row in rows:
+            purchased_date = row.purchased_at.strftime("%Y-%m-%d") if row.purchased_at else "N/A"
+            amount_rupees = float(row.amount_minor / 100) if row.amount_minor else 0.0
+
+            pack_info = "N/A"
+            if row.payment_metadata and isinstance(row.payment_metadata, dict):
+                meta = row.payment_metadata
+                for key in ("credits", "pack", "plan", "pack_name", "credit_count"):
+                    if key in meta:
+                        pack_info = str(meta[key])
+                        break
+                if pack_info == "N/A" and isinstance(meta.get("order_info"), dict):
+                    for key in ("credits", "pack", "plan", "pack_name", "credit_count"):
+                        if key in meta["order_info"]:
+                            pack_info = str(meta["order_info"][key])
+                            break
+
+            purchases.append({
+                "id": row.purchase_id,
+                "customer_id": row.customer_id,
+                "client_id": row.client_id,
+                "client_name": row.client_name or "N/A",
+                "mobile": row.client_contact or "N/A",
+                "purchased_date": purchased_date,
+                "amount": amount_rupees,
+                "pack_info": pack_info,
+            })
+
+        total_pages = math.ceil(total_count / limit)
+
+        return {
+            "success": True,
+            "data": {
+                "purchases": purchases,
+                "total": total_count,
+                "page": page,
+                "limit": limit,
+                "totalPages": total_pages,
+                "hasNext": page < total_pages,
+                "hasPrev": page > 1
+            },
+            "message": "AI diet coach purchases fetched successfully"
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching AI diet coach purchases: {str(e)}"
+        )
+
+
+@router.get("/ai-diet-coach")
+async def get_ai_diet_coach(
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(10, ge=1, le=100, description="Items per page"),
+    search: Optional[str] = Query(None, description="Search by client name or mobile"),
+    start_date: Optional[str] = Query(None, description="Filter by start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Filter by end date (YYYY-MM-DD)"),
+    sort_order: str = Query("desc", description="Sort order for purchase date"),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Get list of AI Diet Coach purchases.
+    Fetches from payments.payments table where payment_metadata['flow'] is 'ai_diet_coach'.
+    """
+    try:
+        import math
+
+        start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
+        end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else None
+
+        ai_flow_cond = (func.json_extract(Payment.payment_metadata, "$.flow") == "ai_diet_coach")
+
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+
+        query = (
+            select(
+                Payment.id.label("purchase_id"),
+                Payment.customer_id.label("customer_id"),
+                Payment.captured_at.label("purchased_at"),
+                Payment.amount_minor.label("amount_minor"),
+                Payment.payment_metadata.label("payment_metadata"),
+                Client.client_id.label("client_id"),
+                Client.name.label("client_name"),
+                Client.contact.label("client_contact"),
+            )
+            .select_from(Payment)
+            .outerjoin(Client, Payment.customer_id == Client.client_id)
+            .where(Payment.status == "captured")
+            .where(ai_flow_cond)
+            .where(~Client.contact.in_(EXCLUDED_CONTACTS))
+        )
+
+        if start_date_obj:
+            query = query.where(func.date(Payment.captured_at) >= start_date_obj)
+        if end_date_obj:
+            query = query.where(func.date(Payment.captured_at) <= end_date_obj)
+
+        if search:
+            search_term = f"%{search.lower()}%"
+            query = query.where(
+                or_(
+                    func.lower(Client.name).like(search_term),
+                    Client.contact.like(search_term)
+                )
+            )
+
+        count_subquery = query.subquery()
+        count_stmt = select(func.count()).select_from(count_subquery)
+        count_result = await db.execute(count_stmt)
+        total_count = count_result.scalar() or 0
+
+        if total_count == 0:
+            return {
+                "success": True,
+                "data": {
+                    "purchases": [],
+                    "total": 0,
+                    "page": page,
+                    "limit": limit,
+                    "totalPages": 0,
+                    "hasNext": False,
+                    "hasPrev": False
+                },
+                "message": "No AI diet coach purchases found"
+            }
+
+        if sort_order == "asc":
+            query = query.order_by(asc(Payment.captured_at))
+        else:
+            query = query.order_by(desc(Payment.captured_at))
+
+        offset = (page - 1) * limit
+        query = query.offset(offset).limit(limit)
+
+        result = await db.execute(query)
+        rows = result.all()
+
+        purchases = []
+        for row in rows:
+            purchased_date = row.purchased_at.strftime("%Y-%m-%d") if row.purchased_at else "N/A"
+            amount_rupees = float(row.amount_minor / 100) if row.amount_minor else 0.0
+
+            pack_info = "N/A"
+            if row.payment_metadata and isinstance(row.payment_metadata, dict):
+                meta = row.payment_metadata
+                for key in ("credits", "pack", "plan", "pack_name", "credit_count"):
+                    if key in meta:
+                        pack_info = str(meta[key])
+                        break
+                if pack_info == "N/A" and isinstance(meta.get("order_info"), dict):
+                    for key in ("credits", "pack", "plan", "pack_name", "credit_count"):
+                        if key in meta["order_info"]:
+                            pack_info = str(meta["order_info"][key])
+                            break
+
+            purchases.append({
+                "id": row.purchase_id,
+                "customer_id": row.customer_id,
+                "client_id": row.client_id,
+                "client_name": row.client_name or "N/A",
+                "mobile": row.client_contact or "N/A",
+                "purchased_date": purchased_date,
+                "amount": amount_rupees,
+                "pack_info": pack_info,
+            })
+
+        total_pages = math.ceil(total_count / limit)
+
+        return {
+            "success": True,
+            "data": {
+                "purchases": purchases,
+                "total": total_count,
+                "page": page,
+                "limit": limit,
+                "totalPages": total_pages,
+                "hasNext": page < total_pages,
+                "hasPrev": page > 1
+            },
+            "message": "AI diet coach purchases fetched successfully"
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching AI diet coach purchases: {str(e)}"
         )
 
 
@@ -3456,7 +3760,7 @@ async def export_ai_credits(
         return StreamingResponse(
             output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
         )
 
     except Exception as e:
@@ -3469,3 +3773,121 @@ async def export_ai_credits(
             detail="An error occurred while exporting AI credits"
         )
 
+
+@router.get("/export-ai-diet-coach")
+async def export_ai_diet_coach(
+    search: Optional[str] = Query(None, description="Search by client name or mobile"),
+    start_date: Optional[str] = Query(None, description="Filter by start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="Filter by end date (YYYY-MM-DD)"),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Export AI Diet Coach purchases to Excel.
+    """
+    try:
+        import logging
+
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+
+        start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
+        end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else None
+
+        ai_flow_cond = (func.json_extract(Payment.payment_metadata, "$.flow") == "ai_diet_coach")
+
+        query = (
+            select(
+                Payment.id.label("purchase_id"),
+                Payment.customer_id.label("customer_id"),
+                Payment.captured_at.label("purchased_at"),
+                Payment.amount_minor.label("amount_minor"),
+                Client.name.label("client_name"),
+                Client.contact.label("client_contact"),
+            )
+            .select_from(Payment)
+            .outerjoin(Client, Payment.customer_id == Client.client_id)
+            .where(Payment.status == "captured")
+            .where(ai_flow_cond)
+            .where(~Client.contact.in_(EXCLUDED_CONTACTS))
+        )
+
+        if start_date_obj:
+            query = query.where(func.date(Payment.captured_at) >= start_date_obj)
+        if end_date_obj:
+            query = query.where(func.date(Payment.captured_at) <= end_date_obj)
+
+        if search:
+            search_term = f"%{search.lower()}%"
+            query = query.where(
+                or_(
+                    func.lower(Client.name).like(search_term),
+                    Client.contact.like(search_term)
+                )
+            )
+
+        query = query.order_by(desc(Payment.captured_at))
+
+        result = await db.execute(query)
+        rows = result.all()
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "AI Diet Coach"
+
+        headers = ["#", "Client Name", "Contact", "Purchased Date", "Amount (₹)"]
+        ws.append(headers)
+
+        header_fill = PatternFill(start_color="E91E63", end_color="E91E63", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF")
+        for col_num in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.font = header_font
+            cell.fill = header_fill
+
+        def fmt_date(d):
+            if not d:
+                return "N/A"
+            return d.strftime("%Y-%m-%d")
+
+        for idx, row in enumerate(rows, start=1):
+            amount_rupees = float(row.amount_minor / 100) if row.amount_minor else 0.0
+            ws.append([
+                idx,
+                row.client_name or "N/A",
+                row.client_contact or "N/A",
+                fmt_date(row.purchased_at),
+                f"{amount_rupees:.2f}",
+            ])
+
+        for column in ws.columns:
+            max_length = 0
+            col_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except Exception:
+                    pass
+            ws.column_dimensions[col_letter].width = min(max_length + 2, 50)
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"ai_diet_coach_{timestamp}.xlsx"
+
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+
+    except Exception as e:
+        import logging
+        logging.error(f"[EXPORT_AI_DIET_COACH] Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred while exporting AI diet coach"
+        )
