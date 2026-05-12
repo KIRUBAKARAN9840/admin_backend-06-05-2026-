@@ -429,6 +429,8 @@ async def delete_diet_template(
 @router.get("/food-search")
 async def search_foods(
     query: str,
+    page: int = 1,
+    limit: int = 20,
     db: AsyncSession = Depends(get_async_db),
     admin: Admins = Depends(get_current_admin_from_cookie)
 ):
@@ -446,6 +448,7 @@ async def search_foods(
             }
 
         search_pattern = f"%{query}%"
+        offset = (page - 1) * limit
 
         # Query using SQLAlchemy ORM
         food_query = select(
@@ -467,7 +470,7 @@ async def search_foods(
             Food.item.ilike(search_pattern)
         ).order_by(
             Food.item.asc()
-        ).limit(20)
+        ).limit(limit).offset(offset)
 
         result = await db.execute(food_query)
         rows = result.all()
