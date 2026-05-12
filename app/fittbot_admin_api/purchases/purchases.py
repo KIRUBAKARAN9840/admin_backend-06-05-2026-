@@ -801,7 +801,7 @@ async def compute_gmv_totals(db: AsyncSession, start_date_obj, end_date_obj):
     Called by both /gmv-summary and /api/admin/unit-economics/data
     so that both always return identical values.
     """
-    EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+    EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
 
     # Daily Pass
     dp_conditions = [DailyPass.gym_id != "1"]
@@ -1010,7 +1010,7 @@ async def get_purchase_count_summary(
     Follows logic from compute_gmv_totals regarding valid purchases.
     """
     try:
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
 
         # 1. Individual Streams
         # Daily Pass
@@ -1180,7 +1180,7 @@ async def export_purchase_count_summary(
     Columns: S.No, Client Name, Client Mobile, No. of Bookings, Gym name, Booking Dates, Total Amount.
     """
     try:
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
 
         # 1. Individual detailed streams
         # Daily Pass
@@ -1441,7 +1441,7 @@ async def get_ai_credits(
         )
 
         # Excluded internal/test contacts (same list as nutrition plans and GMV)
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
 
         # Base query
         query = (
@@ -1591,7 +1591,7 @@ async def get_ai_diet_coach(
 
         ai_flow_cond = (func.json_extract(Payment.payment_metadata, "$.flow") == "ai_diet_coach")
 
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
 
         query = (
             select(
@@ -1732,7 +1732,7 @@ async def get_ai_diet_coach(
 
         ai_flow_cond = (func.json_extract(Payment.payment_metadata, "$.flow") == "ai_diet_coach")
 
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
 
         query = (
             select(
@@ -3345,7 +3345,7 @@ async def get_nutritionist_plans(
         import math
 
         # Contacts to always exclude (internal/test accounts)
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
 
         # Build base query for Payment table — always join Client to apply exclusion
         base_payment_query = (
@@ -3522,7 +3522,7 @@ async def export_nutritionist_plans(
     Returns all nutritionist plan purchases (one-time Google Play purchases) without pagination.
     """
     try:
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
         query = (
             select(
                 Payment.id.label("purchase_id"),
@@ -3666,7 +3666,7 @@ async def export_ai_credits(
     try:
         import logging
 
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
 
         start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
         end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else None
@@ -3791,7 +3791,7 @@ async def export_ai_diet_coach(
     try:
         import logging
 
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
 
         start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
         end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else None

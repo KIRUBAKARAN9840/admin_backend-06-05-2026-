@@ -121,7 +121,7 @@ async def get_users_stats(
 
         # Query 3: Count distinct customer_id from payments table (paying users)
         # Exclude payments associated with gym_id = 1 and internal/test contacts
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
 
         paying_filters = [
             Payment.status == "captured",
@@ -154,7 +154,7 @@ async def get_users_stats(
         # (If ANY order_item for any of their orders has gym_id = 1, that customer is excluded)
         # Apply date filter if provided
 
-        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723"]
+        EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
 
         date_filter_conditions = []
         if start_date_obj:
