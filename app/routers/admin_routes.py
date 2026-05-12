@@ -36,9 +36,20 @@ from app.fittbot_admin_api.nutritionist_sessions import router as nutritionist_s
 from app.fittbot_admin_api.nutritionist_sessions.client_details import router as nutritionist_client_details_router
 from app.fittbot_admin_api.nutritionist_sessions.completed_list import router as nutritionist_completed_list_router
 from app.fittbot_admin_api.nutritionist_sessions.diet_templates import router as nutritionist_diet_templates_router
+from app.fittbot_admin_api.nutritionist_sessions.consultation_form import router as nutritionist_consultation_form_router
 
 # ── Collector ───────────────────────────────────────────────────────
 router = APIRouter()
+
+@router.get("/api/temp/create_consultation_table")
+async def create_consultation_table():
+    from app.models.database import engine
+    from app.models.nutrition_models import NutritionConsultationForm
+    try:
+        NutritionConsultationForm.__table__.create(engine, checkfirst=True)
+        return {"status": "success", "message": "Table created or already exists"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 # New-style admin routers (registered first in original)
 router.include_router(admin_marketing_router)
@@ -76,3 +87,4 @@ router.include_router(nutritionist_sessions_router)
 router.include_router(nutritionist_client_details_router)
 router.include_router(nutritionist_completed_list_router)
 router.include_router(nutritionist_diet_templates_router)
+router.include_router(nutritionist_consultation_form_router)

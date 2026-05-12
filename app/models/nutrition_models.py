@@ -474,3 +474,80 @@ class AnthropometricData(Base):
         onupdate=lambda: now_ist().replace(tzinfo=None),
         nullable=False
     )
+
+class NutritionConsultationForm(Base):
+    __tablename__ = "nutrition_consultation_form"
+    __table_args__ = (
+        Index("ix_nutrition_consultation_form_client_id", "client_id"),
+        {
+            "schema": NUTRITION_SCHEMA
+        },
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nutritionist_id = Column(Integer, nullable=False) # ID of nutritionist who last updated
+    client_id = Column(Integer, nullable=False, index=True)
+    
+    # Section 1: Client Information
+    full_name = Column(String(255), nullable=True)
+    age = Column(String(50), nullable=True)
+    gender = Column(String(50), nullable=True)
+    occupation = Column(String(255), nullable=True)
+    main_health_goal = Column(Text, nullable=True)
+    
+    # Section 2: Anthropometric Assessment
+    anthropometric_table = Column(JSON, nullable=True) # Current/Goal for Weight, Height, BMI, etc.
+    recent_changes = Column(JSON, nullable=True) # Weight gain/loss/etc
+    fat_distribution = Column(JSON, nullable=True) # Abdomen/Hips/etc
+    nutritionist_notes = Column(Text, nullable=True)
+    
+    # Section 3: Biochemical Assessment
+    vitamin_deficiencies = Column(Text, nullable=True)
+    biochemical_issues = Column(Text, nullable=True)
+    ongoing_medications = Column(Text, nullable=True)
+    
+    # Section 4: Clinical Assessment
+    clinical_concerns = Column(JSON, nullable=True) # Table with Never/Sometimes/Often/Severe
+    edema_swelling = Column(Text, nullable=True)
+    joint_pain = Column(Text, nullable=True)
+    weakness_dizziness = Column(Text, nullable=True)
+    other_symptoms = Column(Text, nullable=True)
+    
+    # Section 5: Dietary Assessment
+    meals_daily = Column(String(100), nullable=True)
+    skip_breakfast = Column(String(100), nullable=True)
+    dinner_timing = Column(String(100), nullable=True)
+    late_night_eating = Column(String(100), nullable=True)
+    diet_preference = Column(String(100), nullable=True) # Veg/Non-Veg
+    water_intake = Column(String(100), nullable=True)
+    eat_outside_frequency = Column(String(100), nullable=True)
+    food_allergies = Column(Text, nullable=True)
+    cooking_time = Column(String(100), nullable=True)
+    stay_arrangement = Column(String(100), nullable=True) # Home/PG/Hostel/Alone
+    eating_pattern_desc = Column(Text, nullable=True)
+    
+    # Section 6: Lifestyle Assessment
+    daily_routine = Column(JSON, nullable=True) # Work schedule, Wake up, Sleep, etc.
+    lifestyle_habits = Column(JSON, nullable=True) # Water, Smoking/Alcohol, etc.
+    exercise_routine = Column(Text, nullable=True)
+    step_count = Column(String(100), nullable=True)
+    activity_level = Column(String(100), nullable=True) # Sedentary/Moderate/Active
+    work_mode = Column(String(100), nullable=True) # WFH/Office/Hybrid
+    
+    # Section 7: Goals & Expectations
+    main_goals = Column(Text, nullable=True)
+    consistency_challenges = Column(Text, nullable=True)
+    expected_support = Column(Text, nullable=True)
+    
+    created_at = Column(
+        DateTime,
+        default=lambda: now_ist().replace(tzinfo=None),
+        nullable=False
+    )
+
+    updated_at = Column(
+        DateTime,
+        default=lambda: now_ist().replace(tzinfo=None),
+        onupdate=lambda: now_ist().replace(tzinfo=None),
+        nullable=False
+    )
