@@ -3,6 +3,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, or_
 from typing import List, Optional
 from datetime import datetime
+import re
+
+def parse_base_quantity(qty_str):
+    if not qty_str:
+        return 100.0, 'g'
+    match = re.search(r"(\d+(\.\d+)?)", qty_str)
+    if match:
+        num = float(match.group(1))
+        unit = re.sub(r"[0-9. ]", "", qty_str) or 'g'
+        return num, unit
+    return 100.0, 'g'
 
 from app.models.async_database import get_async_db
 from app.models.adminmodels import Admins
@@ -477,10 +488,14 @@ async def search_foods(
 
         foods = []
         for row in rows:
+            qty_str = row[2]
+            base_qty, base_unit = parse_base_quantity(qty_str)
             foods.append({
                 "id": row[0],
                 "name": row[1],
-                "quantity": row[2],
+                "quantity": qty_str,
+                "base_quantity": base_qty,
+                "base_unit": base_unit,
                 "nutrition": {
                     "calories": row[3] or 0,
                     "protein": row[4] or 0,

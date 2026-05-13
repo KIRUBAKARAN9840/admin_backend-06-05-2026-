@@ -37,6 +37,7 @@ from app.fittbot_admin_api.nutritionist_sessions.client_details import router as
 from app.fittbot_admin_api.nutritionist_sessions.completed_list import router as nutritionist_completed_list_router
 from app.fittbot_admin_api.nutritionist_sessions.diet_templates import router as nutritionist_diet_templates_router
 from app.fittbot_admin_api.nutritionist_sessions.consultation_form import router as nutritionist_consultation_form_router
+from app.fittbot_admin_api.nutritionist_sessions.food_collections import router as nutritionist_food_collections_router
 
 # ── Collector ───────────────────────────────────────────────────────
 router = APIRouter()
@@ -88,3 +89,4 @@ router.include_router(nutritionist_client_details_router)
 router.include_router(nutritionist_completed_list_router)
 router.include_router(nutritionist_diet_templates_router)
 router.include_router(nutritionist_consultation_form_router)
+router.include_router(nutritionist_food_collections_router)
