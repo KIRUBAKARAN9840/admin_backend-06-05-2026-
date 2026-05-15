@@ -43,16 +43,6 @@ async def get_completed_sessions_list(
     db: AsyncSession = Depends(get_async_db),
     admin: Admins = Depends(get_current_admin_from_cookie)
 ):
-    """
-    Get paginated list of completed sessions for the nutritionist.
-
-    Features:
-    - Fully async with optimized queries
-    - Backend pagination (no N+1 queries)
-    - Multiple filters: search, date range, product interest
-    - Single query with JOIN for client names
-    - Latest sessions first (order by slot_date DESC, slot_time DESC)
-    """
     try:
         # First find the nutritionist
         nutritionist_query = select(

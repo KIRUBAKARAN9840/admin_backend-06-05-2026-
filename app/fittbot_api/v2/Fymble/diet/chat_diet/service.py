@@ -1,10 +1,3 @@
-"""Chat-diet orchestration: dedup, enqueue, expose status/plan + follow-up flow.
-
-The slow LLM work runs in a Celery task on the `chat_diet_jobs` queue.
-This service stays thin: validates state, hits Redis, hits the DB cache,
-and either returns the cached plan inline or enqueues a new generation.
-"""
-
 from datetime import datetime
 from typing import Any, Dict, Optional
 

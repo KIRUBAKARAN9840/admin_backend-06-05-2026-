@@ -162,91 +162,33 @@ async def get_users_stats(
         if end_date_obj:
             date_filter_conditions.append(Payment.captured_at <= end_date_obj)
 
-        # Step 1: Find customers with more than 1 payment in filtered payments
-        # Also exclude internal/test contacts
-        customers_with_multiple_q = (
-            select(Payment.customer_id)
-            .join(Order, Order.id == Payment.order_id)
-            .outerjoin(Client, Payment.customer_id == Client.client_id)
-        )
-        customers_with_multiple_q = customers_with_multiple_q.where(
-            and_(
-                or_(
-                    Client.contact.is_(None),
-                    ~Client.contact.in_(EXCLUDED_CONTACTS)
-                )
-            )
-        )
-        if date_filter_conditions:
-            customers_with_multiple_q = customers_with_multiple_q.where(and_(*date_filter_conditions))
-
-        customers_with_multiple = (
-            customers_with_multiple_q
-            .group_by(Payment.customer_id)
-            .having(func.count(Payment.customer_id) > 1)
-        ).subquery()
-
-        # Step 2: For each multi-payment customer, check if ALL their orders have gym_id = 1
-        # A customer is EXCLUDED only if ALL their orders have at least one order_item with gym_id = 1
-        # A customer is INCLUDED if at least one of their orders has NO gym_id = 1
-
-        # First, get total orders per customer (excluding internal contacts)
-        total_orders_per_customer = (
+        # Step 1: Find customers with 2+ payments excluding gym_id = 1
+        # A payment is valid if it has at least one order_item with gym_id != '1' (or NULL)
+        valid_payments_subquery = (
             select(
                 Payment.customer_id,
-                func.count(func.distinct(Order.id)).label("total_orders")
-            )
-            .join(Order, Order.id == Payment.order_id)
-            .outerjoin(Client, Payment.customer_id == Client.client_id)
-            .where(
-                or_(
-                    Client.contact.is_(None),
-                    ~Client.contact.in_(EXCLUDED_CONTACTS)
-                )
-            )
-            .group_by(Payment.customer_id)
-        ).subquery()
-
-        # Then, get count of orders that have gym_id = 1 (per customer)
-        # Also exclude internal/test contacts for consistency
-        bad_orders_per_customer = (
-            select(
-                Payment.customer_id,
-                func.count(func.distinct(OrderItem.order_id)).label("bad_orders")
+                Payment.id.label("payment_id")
             )
             .join(Order, Order.id == Payment.order_id)
             .join(OrderItem, OrderItem.order_id == Order.id)
-            .outerjoin(Client, Payment.customer_id == Client.client_id)
+            .join(Client, Payment.customer_id == Client.client_id)
             .where(
                 and_(
-                    OrderItem.gym_id == '1',
-                    or_(
-                        Client.contact.is_(None),
-                        ~Client.contact.in_(EXCLUDED_CONTACTS)
-                    )
+                    Payment.status == "captured",
+                    or_(OrderItem.gym_id != '1', OrderItem.gym_id.is_(None)),
+                    or_(Client.contact.is_(None), ~Client.contact.in_(EXCLUDED_CONTACTS))
                 )
             )
-            .group_by(Payment.customer_id)
-        ).subquery()
+        )
 
-        # Customers where ALL orders are bad (total_orders == bad_orders)
-        customers_with_all_bad_orders = (
-            select(total_orders_per_customer.c.customer_id)
-            .join(
-                bad_orders_per_customer,
-                total_orders_per_customer.c.customer_id == bad_orders_per_customer.c.customer_id
-            )
-            .where(
-                total_orders_per_customer.c.total_orders == bad_orders_per_customer.c.bad_orders
-            )
-        ).subquery()
+        if date_filter_conditions:
+            valid_payments_subquery = valid_payments_subquery.where(and_(*date_filter_conditions))
 
-        # Final retention: multi-payment customers EXCLUDING those where ALL orders have gym_id = 1
+        # Group by customer and find those with 2+ distinct valid payments
         retention_subquery = (
-            select(customers_with_multiple.c.customer_id)
-            .where(
-                ~customers_with_multiple.c.customer_id.in_(customers_with_all_bad_orders)
-            )
+            select(valid_payments_subquery.c.customer_id)
+            .group_by(valid_payments_subquery.c.customer_id)
+            .having(func.count(func.distinct(valid_payments_subquery.c.payment_id)) >= 2)
         ).subquery()
 
         repeat_query = select(func.count()).select_from(retention_subquery)
