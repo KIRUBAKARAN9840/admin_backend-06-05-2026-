@@ -1,15 +1,16 @@
 # Users Stats API - Total Users Count
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func, select, case, literal_column, and_, or_
+from sqlalchemy import func, select, case, literal_column, and_, or_, cast, Integer, union_all, literal, not_
 from typing import Dict, List, Optional
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 
 from app.models.async_database import get_async_db
-from app.models.fittbot_models import Client, ActiveUser
+from app.models.fittbot_models import Client, ActiveUser, SessionPurchase
 from app.fittbot_api.v1.payments.models.payments import Payment
 from app.fittbot_api.v1.payments.models.orders import Order, OrderItem
+from app.models.dailypass_models import DailyPass
 from app.fittbot_admin_api.purchases.purchases import compute_gmv_totals
 
 router = APIRouter(prefix="/api/admin/users-stats", tags=["AdminUsersStats"])
@@ -162,37 +163,107 @@ async def get_users_stats(
         if end_date_obj:
             date_filter_conditions.append(Payment.captured_at <= end_date_obj)
 
-        # Step 1: Find customers with 2+ payments excluding gym_id = 1
-        # A payment is valid if it has at least one order_item with gym_id != '1' (or NULL)
-        valid_payments_subquery = (
+        # Step 1: Define strict streams for Retention
+        # Daily Pass Stream (Verified Success)
+        dp_retention = (
             select(
-                Payment.customer_id,
-                Payment.id.label("payment_id")
+                cast(DailyPass.client_id, Integer).label("client_id"),
+                Payment.id.label("event_id")
             )
-            .join(Order, Order.id == Payment.order_id)
-            .join(OrderItem, OrderItem.order_id == Order.id)
-            .join(Client, Payment.customer_id == Client.client_id)
+            .join(Payment, DailyPass.payment_id == Payment.provider_payment_id)
+            .outerjoin(Client, cast(DailyPass.client_id, Integer) == Client.client_id)
             .where(
-                and_(
-                    Payment.status == "captured",
-                    or_(OrderItem.gym_id != '1', OrderItem.gym_id.is_(None)),
-                    or_(Client.contact.is_(None), ~Client.contact.in_(EXCLUDED_CONTACTS))
-                )
+                Payment.status == "captured",
+                or_(DailyPass.gym_id != "1", DailyPass.gym_id.is_(None)),
+                ~Client.contact.in_(EXCLUDED_CONTACTS)
             )
         )
 
-        if date_filter_conditions:
-            valid_payments_subquery = valid_payments_subquery.where(and_(*date_filter_conditions))
+        # Fitness Class Stream (Verified Paid)
+        sess_retention = (
+            select(
+                SessionPurchase.client_id,
+                SessionPurchase.id.label("event_id")
+            )
+            .outerjoin(Client, SessionPurchase.client_id == Client.client_id)
+            .where(
+                SessionPurchase.status == "paid", 
+                or_(SessionPurchase.gym_id != 1, SessionPurchase.gym_id.is_(None)),
+                ~Client.contact.in_(EXCLUDED_CONTACTS)
+            )
+        )
 
-        # Group by customer and find those with 2+ distinct valid payments
-        retention_subquery = (
-            select(valid_payments_subquery.c.customer_id)
-            .group_by(valid_payments_subquery.c.customer_id)
-            .having(func.count(func.distinct(valid_payments_subquery.c.payment_id)) >= 2)
+        # Other Sources (Nutrition/AI/Membership)
+        other_retention = (
+            select(
+                Payment.customer_id.label("client_id"),
+                Payment.id.label("event_id")
+            )
+            .outerjoin(Client, Payment.customer_id == Client.client_id)
+            .where(
+                Payment.status == "captured",
+                or_(
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "nutrition_purchase_googleplay",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "nutrition_package_razorpay",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "basic_nutrition_plan",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "expert_nutrition_plan",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "elite_nutrition_plan",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "food_scanner_credits",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "food_scanner_credits_razorpay",
+                    func.json_extract(Payment.payment_metadata, "$.flow") == "ai_diet_coach"
+                ),
+                ~Client.contact.in_(EXCLUDED_CONTACTS)
+            )
+        )
+
+        # Add Gym Membership to 'other'
+        gym_meta_cond_ret = or_(
+            func.json_unquote(func.json_extract(Order.order_metadata, "$.audit.source")) == "dailypass_checkout_api",
+            func.json_unquote(func.json_extract(Order.order_metadata, "$.order_info.flow")) == "unified_gym_membership_with_sub",
+            func.json_unquote(func.json_extract(Order.order_metadata, "$.order_info.flow")) == "unified_gym_membership_with_free_fittbot"
+        )
+
+        gm_retention = (
+            select(
+                cast(Order.customer_id, Integer).label("client_id"),
+                Payment.id.label("event_id")
+            )
+            .select_from(Payment)
+            .join(Order, Order.id == Payment.order_id)
+            .join(Client, Client.client_id == cast(Order.customer_id, Integer))
+            .where(
+                Payment.status == "captured",
+                Order.status == "paid",
+                ~Client.contact.in_(EXCLUDED_CONTACTS),
+                gym_meta_cond_ret
+            )
+        )
+
+        # Apply date filters
+        if start_date_obj:
+            dp_retention = dp_retention.where(func.date(Payment.captured_at) >= start_date_obj)
+            sess_retention = sess_retention.where(func.date(SessionPurchase.created_at) >= start_date_obj)
+            other_retention = other_retention.where(func.date(Payment.captured_at) >= start_date_obj)
+            gm_retention = gm_retention.where(func.date(Payment.captured_at) >= start_date_obj)
+        if end_date_obj:
+            dp_retention = dp_retention.where(func.date(Payment.captured_at) <= end_date_obj)
+            sess_retention = sess_retention.where(func.date(SessionPurchase.created_at) <= end_date_obj)
+            other_retention = other_retention.where(func.date(Payment.captured_at) <= end_date_obj)
+            gm_retention = gm_retention.where(func.date(Payment.captured_at) <= end_date_obj)
+
+        # Step 2: Combine and filter
+        unified_ret = union_all(dp_retention, sess_retention, other_retention, gm_retention).alias("unified_ret")
+        
+        # Final aggregation (only users with more than 1 DISTINCT purchase event)
+        retention_sub_stmt = (
+            select(unified_ret.c.client_id)
+            .group_by(unified_ret.c.client_id)
+            .having(func.count(func.distinct(unified_ret.c.event_id)) >= 2)
         ).subquery()
-
-        repeat_query = select(func.count()).select_from(retention_subquery)
-        repeat_result = await db.execute(repeat_query)
+        
+        retention_query = select(func.count()).select_from(retention_sub_stmt)
+        
+        repeat_result = await db.execute(retention_query)
         repeat_count = repeat_result.scalar() or 0
 
         # Query 5: Get users per city with normalization
