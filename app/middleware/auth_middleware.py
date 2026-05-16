@@ -55,8 +55,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/telecaller/telecaller/session-status",
         ]
 
+        corporate_auth_paths = [
+            "/api/corporate/auth/login",
+            "/api/corporate/auth/send_otp",
+            "/api/corporate/auth/verify_otp",
+            "/api/corporate/auth/change_password",
+            "/api/corporate/auth/logout",
+            "/api/corporate/auth/refresh-cookie",
+            "/api/corporate/auth/verify",
+            "/api/corporate/auth/profile",
+        ]
+
         current_path = request.url.path
-        if current_path in public_exact_paths or any(current_path.startswith(path) for path in public_paths) or current_path in admin_auth_paths or current_path in telecaller_auth_paths:            
+        if current_path in public_exact_paths or any(current_path.startswith(path) for path in public_paths) or current_path in admin_auth_paths or current_path in telecaller_auth_paths or current_path in corporate_auth_paths:            
             return await call_next(request)
 
         token = None

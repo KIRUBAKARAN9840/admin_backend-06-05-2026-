@@ -41,6 +41,7 @@ from app.routers.ws_routes import router as ws_router
 from app.routers.marketing_routes import router as marketing_router
 from app.routers.admin_routes import router as admin_router
 from app.routers.misc_routes import router as misc_router
+from app.routers.corporate_routes import router as corporate_router
 
 for r in (
     core_router,
@@ -52,6 +53,7 @@ for r in (
     marketing_router,
     admin_router,
     misc_router,
+    corporate_router,
 ):
     app.include_router(r)
 

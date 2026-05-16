@@ -212,9 +212,9 @@ class Settings(BaseSettings):
         """Return CORS origins, falling back to local defaults when unset."""
         origins: List[str] = list(dict.fromkeys(self.cors_origins))
         if not origins:
-            origins.extend(["http://10.37.105.156:3000","http://localhost:3000", "http://127.0.0.1:3000","http://192.168.1.21:3000","http://192.168.1.6:3000","https://erminia-mirthful-nonpatriotically.ngrok-free.dev"])
+            origins.extend(["http://10.37.105.156:3000","http://localhost:3000", "http://127.0.0.1:3000","http://192.168.1.21:3000","http://192.168.1.6:3000","https://erminia-mirthful-nonpatriotically.ngrok-free.dev","http://localhost:3001"])
         elif self.environment.lower() != "production":
-            for origin in ("http://10.37.105.156:3000","http://localhost:3000", "http://127.0.0.1:3000","http://192.168.1.21:3000","http://192.168.1.6:3000","https://erminia-mirthful-nonpatriotically.ngrok-free.dev"):
+            for origin in ("http://10.37.105.156:3000","http://localhost:3000", "http://127.0.0.1:3000","http://192.168.1.21:3000","http://192.168.1.6:3000","https://erminia-mirthful-nonpatriotically.ngrok-free.dev","http://localhost:3001"):
                 if origin not in origins:
                     origins.append(origin)
 
