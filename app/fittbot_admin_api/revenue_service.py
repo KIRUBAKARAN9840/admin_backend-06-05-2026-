@@ -1762,7 +1762,7 @@ async def get_financial_metrics(
         sessions_comm=sessions_comm
     )
 
-    total_net_revenue_rupees = net_revenue_data["total_net_revenue"]
+    total_net_revenue_rupees = paise_to_rupees(net_revenue_data["total_net_revenue"])
     arpu = total_net_revenue_rupees / total_users_count if total_users_count > 0 else 0
     arppu = total_net_revenue_rupees / paying_users_count if paying_users_count > 0 else 0
 

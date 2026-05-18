@@ -13,6 +13,7 @@ SQLAlchemy==2.0.36
 databases==0.9.0
 PyMySQL==1.1.1
 aiomysql
+greenlet
 mysql-connector-python==9.1.0
 alembic==1.16.5
 
