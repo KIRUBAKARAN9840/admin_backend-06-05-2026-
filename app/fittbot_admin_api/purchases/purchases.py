@@ -429,7 +429,13 @@ async def get_all_purchases(
 
         # Fetch scheduled dates and status for daily passes and sessions
         daily_pass_ids = [row.id for row in rows if row.type == "Daily Pass"]
-        session_ids = [row.id for row in rows if row.type == "Session"]
+        session_ids = []
+        for row in rows:
+            if row.type == "Session":
+                try:
+                    session_ids.append(int(row.id))
+                except (ValueError, TypeError):
+                    session_ids.append(row.id)
 
         daily_pass_dates = {}
         daily_pass_statuses = {}
@@ -534,10 +540,18 @@ async def get_all_purchases(
                 purchase["days_total"] = None
                 purchase["session_display"] = get_session_display(row.scheduled_sessions)
                 purchase["session_schedule"] = get_session_schedule(row.scheduled_sessions)
-                purchase["scheduled_date"] = session_dates.get(row.id, [])
+                
+                # Cast row.id to int for lookup in session dicts (since union query returns it as string,
+                # but SessionBookingDay.purchase_id is an integer)
+                try:
+                    session_key = int(row.id)
+                except (ValueError, TypeError):
+                    session_key = row.id
+
+                purchase["scheduled_date"] = session_dates.get(session_key, [])
                 purchase["session_name"] = row.session_name
                 # Determine overall status for session
-                statuses = session_statuses.get(row.id, [])
+                statuses = session_statuses.get(session_key, [])
                 purchase["status"] = get_overall_status(statuses)
 
             purchases.append(purchase)
@@ -2117,7 +2131,7 @@ async def get_gym_memberships(
                     order_gym_id_mapping[item.order_id] = item.gym_id
                     order_item_id_mapping[item.order_id] = item.id
 
-            # Fetch entitlements for these order_items to get status, joined_at, expire_at
+            # Fetch entitlements for these order_items to get status, joined_at, expire_at from fittbot_gym_membership table
             order_item_ids = [item.id for item in order_items]
             entitlements_mapping = {}
             if order_item_ids:
@@ -2127,12 +2141,38 @@ async def get_gym_memberships(
                 )
                 entitlements_result = await db.execute(entitlements_stmt)
                 entitlements = entitlements_result.scalars().all()
+
+                # Collect entitlement IDs
+                ent_ids = [ent.id for ent in entitlements if ent.id]
+                fittbot_memberships_mapping = {}
+                if ent_ids:
+                    fittbot_stmt = (
+                        select(FittbotGymMembership)
+                        .where(FittbotGymMembership.entitlement_id.in_(ent_ids))
+                    )
+                    fittbot_result = await db.execute(fittbot_stmt)
+                    fittbot_memberships = fittbot_result.scalars().all()
+                    for fm in fittbot_memberships:
+                        fittbot_memberships_mapping[fm.entitlement_id] = {
+                            "status": fm.status,
+                            "joined_at": fm.joined_at,
+                            "expire_at": fm.expires_at
+                        }
+
                 for ent in entitlements:
-                    entitlements_mapping[ent.order_item_id] = {
-                        "status": ent.status,
-                        "joined_at": ent.active_from,
-                        "expire_at": ent.active_until
-                    }
+                    fm_data = fittbot_memberships_mapping.get(ent.id) if ent.id else None
+                    if fm_data:
+                        entitlements_mapping[ent.order_item_id] = {
+                            "status": fm_data["status"] or "N/A",
+                            "joined_at": fm_data["joined_at"],
+                            "expire_at": fm_data["expire_at"]
+                        }
+                    else:
+                        entitlements_mapping[ent.order_item_id] = {
+                            "status": "N/A",
+                            "joined_at": None,
+                            "expire_at": None
+                        }
 
         # Filter by metadata conditions and collect valid orders
         valid_orders = []
