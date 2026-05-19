@@ -1069,10 +1069,18 @@ async def get_recurring_subscribers(db: AsyncSession = Depends(get_async_db)):
             except (ValueError, TypeError):
                 pass
 
-        # Fetch only valid client IDs that exist in Client table
+        # Fetch only valid client IDs that exist in Client table and are not excluded test contacts
         valid_count = 0
         if customer_ids_int:
-            stmt = select(func.count()).select_from(Client).where(Client.client_id.in_(customer_ids_int))
+            EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
+            stmt = (
+                select(func.count())
+                .select_from(Client)
+                .where(
+                    Client.client_id.in_(customer_ids_int),
+                    ~Client.contact.in_(EXCLUDED_CONTACTS)
+                )
+            )
             result = await db.execute(stmt)
             valid_count = result.scalar() or 0
 
@@ -1156,10 +1164,17 @@ async def get_recurring_subscribers_details(
                 # Skip if customer_id cannot be converted to int
                 pass
 
-        # First, fetch all valid clients to get accurate count
+        # First, fetch all valid clients to get accurate count (excluding test contacts)
         valid_client_ids = []
         if customer_ids_int:
-            stmt = select(Client.client_id).where(Client.client_id.in_(customer_ids_int))
+            EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
+            stmt = (
+                select(Client.client_id)
+                .where(
+                    Client.client_id.in_(customer_ids_int),
+                    ~Client.contact.in_(EXCLUDED_CONTACTS)
+                )
+            )
             result = await db.execute(stmt)
             valid_client_ids = [row[0] for row in result.all()]
 
@@ -1907,9 +1922,9 @@ async def get_purchase_analytics(
                 dailypass_session = get_dailypass_session()
 
                 # Build base query — JOIN Gym table to exclude records with no matching gym
-                # GMV fix: SUM(days_total) so multi-day passes count each day (not just 1 per transaction)
+                # Option A: SUM(days_total * head_count) so multipass purchases scale by headcount
                 all_query = dailypass_session.query(
-                    func.coalesce(func.sum(DailyPass.days_total), 0).label('total_purchases'),
+                    func.coalesce(func.sum(DailyPass.days_total * DailyPass.head_count), 0).label('total_purchases'),
                     func.count(distinct(DailyPass.client_id)).label('total_unique_users')
                 ).join(
                     Gym, Gym.gym_id == func.cast(DailyPass.gym_id, Integer), isouter=False
@@ -1937,10 +1952,10 @@ async def get_purchase_analytics(
                     category_breakdown["daily_pass"]["unique_users"] = total_result.total_unique_users or 0
 
                 # Build separate query for purchases over time (grouped by date) — same Gym JOIN
-                # GMV fix: SUM(days_total) so multi-day passes count each day in time-series too
+                # Option A: SUM(days_total * head_count) so multipass purchases scale by headcount in time-series too
                 base_query = dailypass_session.query(
                     func.date(DailyPass.created_at).label('purchase_date'),
-                    func.coalesce(func.sum(DailyPass.days_total), 0).label('purchase_count')
+                    func.coalesce(func.sum(DailyPass.days_total * DailyPass.head_count), 0).label('purchase_count')
                 ).join(
                     Gym, Gym.gym_id == func.cast(DailyPass.gym_id, Integer), isouter=False
                 ).filter(
@@ -1979,9 +1994,10 @@ async def get_purchase_analytics(
 
                 # Get gym-wise purchases - ALWAYS get all gyms with purchases in timeframe/location
                 # This ensures the filter dropdown remains populated even when a gym is selected.
+                # Option A: SUM(days_total * head_count) so multipass purchases scale by headcount gym-wise
                 gym_query = dailypass_session.query(
                     DailyPass.gym_id,
-                    func.count().label('purchase_count')
+                    func.coalesce(func.sum(DailyPass.days_total * DailyPass.head_count), 0).label('purchase_count')
                 ).join(
                     Gym, Gym.gym_id == func.cast(DailyPass.gym_id, Integer), isouter=False
                 ).filter(
@@ -2016,9 +2032,10 @@ async def get_purchase_analytics(
                 # GMV fix: add Gym INNER JOIN so orphaned DailyPass records are excluded
                 if not location or location == "all":
                     try:
-                        # Get all DailyPass client_ids — with Gym JOIN to exclude orphans
+                        # Get all DailyPass client_ids and their headcount-scaled purchases — with Gym JOIN to exclude orphans
                         daily_pass_records = dailypass_session.query(
-                            DailyPass.client_id
+                            DailyPass.client_id,
+                            (DailyPass.days_total * DailyPass.head_count).label("purchase_count")
                         ).join(
                             Gym, Gym.gym_id == func.cast(DailyPass.gym_id, Integer), isouter=False
                         ).filter(
@@ -2050,7 +2067,7 @@ async def get_purchase_analytics(
                                     normalized_loc = raw_loc.strip().replace(' ', '_')
                                     if normalized_loc not in location_purchases:
                                         location_purchases[normalized_loc] = 0
-                                    location_purchases[normalized_loc] += 1
+                                    location_purchases[normalized_loc] += record.purchase_count
 
                     except Exception as e:
                         import logging

@@ -10,9 +10,9 @@ from datetime import datetime, date, timedelta
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font
 
-from app.models.fittbot_models import Client, Gym, GymOwner, SessionPurchase, SessionBookingDay, FittbotGymMembership, ClassSession
+from app.models.fittbot_models import Client, Gym, GymOwner, SessionPurchase, SessionBookingDay, FittbotGymMembership, ClassSession, SessionSetting
 from app.models.async_database import get_async_db
-from app.models.dailypass_models import DailyPass, DailyPassDay
+from app.models.dailypass_models import DailyPass, DailyPassDay, DailyPassPricing
 from app.fittbot_api.v1.payments.models.payments import Payment
 from app.fittbot_api.v1.payments.models.orders import Order, OrderItem
 from app.fittbot_api.v1.payments.models.subscriptions import Subscription
@@ -81,13 +81,15 @@ async def get_all_purchases(
                 Client.contact.label("client_contact"),
                 Client.platform.label("platform"),
                 literal(None).label("session_name"),
-                DailyPass.head_count.label("head_count")
+                DailyPass.head_count.label("head_count"),
+                (DailyPassPricing.discount_price / 100.0).label("discount_price")
             )
             .select_from(DailyPass)
             .join(Gym, cast(DailyPass.gym_id, Integer) == Gym.gym_id)  # Inner join - exclude if gym not found
             .outerjoin(Client, cast(DailyPass.client_id, Integer) == Client.client_id)
             .outerjoin(GymOwner, Gym.owner_id == GymOwner.owner_id)
             .outerjoin(Payment, DailyPass.payment_id == Payment.provider_payment_id)
+            .outerjoin(DailyPassPricing, DailyPass.gym_id == DailyPassPricing.gym_id)
             .where(DailyPass.gym_id != "1")  # Exclude gym_id = 1
         )
 
@@ -112,7 +114,14 @@ async def get_all_purchases(
                 Client.contact.label("client_contact"),
                 Client.platform.label("platform"),
                 ClassSession.name.label("session_name"),
-                literal(1).label("head_count")
+                literal(1).label("head_count"),
+                (
+                    select(SessionSetting.final_price)
+                    .where(SessionSetting.gym_id == SessionPurchase.gym_id)
+                    .where(SessionSetting.session_id == SessionPurchase.session_id)
+                    .limit(1)
+                    .scalar_subquery()
+                ).label("discount_price")
             )
             .select_from(SessionPurchase)
             .join(Gym, SessionPurchase.gym_id == Gym.gym_id)  # Inner join - exclude if gym not found
@@ -345,7 +354,8 @@ async def get_all_purchases(
                 combined_query.c.client_contact,
                 combined_query.c.platform,
                 combined_query.c.session_name,
-                combined_query.c.head_count
+                combined_query.c.head_count,
+                combined_query.c.discount_price
             )
             .select_from(combined_query)
             .order_by(combined_query.c.purchased_at.desc())
@@ -508,7 +518,8 @@ async def get_all_purchases(
                 "gym_area": row.gym_area or "N/A",
                 "client_contact": row.client_contact or None,
                 "platform": row.platform or None,
-                "head_count": row.head_count or 1
+                "head_count": row.head_count or 1,
+                "discount_price": float(row.discount_price) if row.discount_price is not None else None
             }
 
             if row.type == "Daily Pass":
@@ -745,8 +756,15 @@ async def get_booking_count(
             start_datetime = datetime(2020, 1, 1).replace(tzinfo=IST)
             end_datetime = datetime.combine(today, datetime.max.time()).replace(tzinfo=IST)
         elif date_filter == "custom" and start_time and end_time:
-            start_datetime = datetime.fromisoformat(start_time.replace('Z', '+00:00')).replace(tzinfo=IST)
-            end_datetime = datetime.fromisoformat(end_time.replace('Z', '+00:00')).replace(tzinfo=IST)
+            if 'T' in start_time:
+                start_datetime = datetime.fromisoformat(start_time.replace('Z', '+00:00')).replace(tzinfo=IST)
+            else:
+                start_datetime = datetime.combine(datetime.fromisoformat(start_time).date(), datetime.min.time()).replace(tzinfo=IST)
+                
+            if 'T' in end_time:
+                end_datetime = datetime.fromisoformat(end_time.replace('Z', '+00:00')).replace(tzinfo=IST)
+            else:
+                end_datetime = datetime.combine(datetime.fromisoformat(end_time).date(), datetime.max.time()).replace(tzinfo=IST)
         else:
             start_datetime = datetime.combine(today, datetime.min.time()).replace(tzinfo=IST)
             end_datetime = datetime.combine(today, datetime.max.time()).replace(tzinfo=IST)
@@ -812,7 +830,7 @@ async def compute_gmv_totals(db: AsyncSession, start_date_obj, end_date_obj):
 
     dp_stmt = (
         select(
-            func.coalesce(func.sum(DailyPass.days_total), 0).label("count"),
+            func.coalesce(func.sum(DailyPass.days_total * DailyPass.head_count), 0).label("count"),
             func.coalesce(func.sum(Payment.amount_minor / 100.0), 0).label("total_revenue")
         )
         .select_from(DailyPass)
@@ -1013,20 +1031,22 @@ async def get_purchase_count_summary(
         EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
 
         # 1. Individual Streams
-        # Daily Pass
+        # Daily Pass (Option A: Days × Headcount)
         dp_stream = (
             select(
                 cast(DailyPass.client_id, Integer).label("client_id"),
-                literal("pass_or_session").label("source_category")
+                literal("pass_or_session").label("source_category"),
+                func.coalesce(DailyPass.days_total * DailyPass.head_count, 1).label("purchase_weight")
             )
             .where(or_(DailyPass.gym_id != "1", DailyPass.gym_id.is_(None)))
         )
 
-        # Sessions
+        # Sessions (sessions_count)
         sess_stream = (
             select(
                 SessionPurchase.client_id,
-                literal("pass_or_session").label("source_category")
+                literal("pass_or_session").label("source_category"),
+                func.coalesce(SessionPurchase.sessions_count, 1).label("purchase_weight")
             )
             .where(SessionPurchase.status == "paid", or_(SessionPurchase.gym_id != 1, SessionPurchase.gym_id.is_(None)))
         )
@@ -1035,7 +1055,8 @@ async def get_purchase_count_summary(
         nutri_stream = (
             select(
                 Payment.customer_id.label("client_id"),
-                literal("other").label("source_category")
+                literal("other").label("source_category"),
+                literal(1).label("purchase_weight")
             )
             .outerjoin(Client, Payment.customer_id == Client.client_id)
             .where(
@@ -1055,7 +1076,8 @@ async def get_purchase_count_summary(
         ai_stream = (
             select(
                 Payment.customer_id.label("client_id"),
-                literal("other").label("source_category")
+                literal("other").label("source_category"),
+                literal(1).label("purchase_weight")
             )
             .outerjoin(Client, Payment.customer_id == Client.client_id)
             .where(
@@ -1089,7 +1111,8 @@ async def get_purchase_count_summary(
         gm_stream = (
             select(
                 cast(Order.customer_id, Integer).label("client_id"),
-                literal("other").label("source_category")
+                literal("other").label("source_category"),
+                literal(1).label("purchase_weight")
             )
             .select_from(Payment)
             .join(Order, Order.id == Payment.order_id)
@@ -1117,7 +1140,7 @@ async def get_purchase_count_summary(
         agg_query = (
             select(
                 unified_purchases.c.client_id,
-                func.count().label("total_purchases"),
+                func.sum(unified_purchases.c.purchase_weight).label("total_purchases"),
                 Client.name.label("client_name"),
                 Client.contact.label("client_contact"),
                 Client.profile.label("dp")
@@ -1130,7 +1153,7 @@ async def get_purchase_count_summary(
                 )
             )
             .group_by(unified_purchases.c.client_id, Client.name, Client.contact, Client.profile)
-            .order_by(desc(func.count()))
+            .order_by(desc(func.sum(unified_purchases.c.purchase_weight)))
         )
 
         if search:
@@ -1158,7 +1181,7 @@ async def get_purchase_count_summary(
                 "client_name": r.client_name or "Unknown",
                 "client_contact": r.client_contact or "N/A",
                 "dp": r.dp,
-                "total_purchases": r.total_purchases
+                "total_purchases": int(r.total_purchases or 0)
             }
             for r in rows
         ]
@@ -1193,7 +1216,7 @@ async def export_purchase_count_summary(
         EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
 
         # 1. Individual detailed streams
-        # Daily Pass
+        # Daily Pass (Option A: Days × Headcount)
         dp_stream = (
             select(
                 cast(DailyPass.client_id, Integer).label("client_id"),
@@ -1201,7 +1224,8 @@ async def export_purchase_count_summary(
                 Gym.name.label("gym_name"),
                 func.date(DailyPass.created_at).label("booking_date"),
                 literal("Daily Pass").label("type"),
-                literal("pass_or_session").label("source_category")
+                literal("pass_or_session").label("source_category"),
+                func.coalesce(DailyPass.days_total * DailyPass.head_count, 1).label("purchase_weight")
             )
             .select_from(DailyPass)
             .join(Gym, cast(DailyPass.gym_id, Integer) == Gym.gym_id)
@@ -1209,7 +1233,7 @@ async def export_purchase_count_summary(
             .where(or_(DailyPass.gym_id != "1", DailyPass.gym_id.is_(None)))
         )
 
-        # Sessions
+        # Sessions (sessions_count)
         sess_stream = (
             select(
                 SessionPurchase.client_id,
@@ -1217,7 +1241,8 @@ async def export_purchase_count_summary(
                 Gym.name.label("gym_name"),
                 func.date(SessionPurchase.created_at).label("booking_date"),
                 literal("Session").label("type"),
-                literal("pass_or_session").label("source_category")
+                literal("pass_or_session").label("source_category"),
+                func.coalesce(SessionPurchase.sessions_count, 1).label("purchase_weight")
             )
             .select_from(SessionPurchase)
             .join(Gym, SessionPurchase.gym_id == Gym.gym_id)
@@ -1232,7 +1257,8 @@ async def export_purchase_count_summary(
                 literal("Nutrition Service").label("gym_name"),
                 func.date(Payment.captured_at).label("booking_date"),
                 literal("Nutrition").label("type"),
-                literal("other").label("source_category")
+                literal("other").label("source_category"),
+                literal(1).label("purchase_weight")
             )
             .select_from(Payment)
             .outerjoin(Client, Payment.customer_id == Client.client_id)
@@ -1257,7 +1283,8 @@ async def export_purchase_count_summary(
                 literal("AI Service").label("gym_name"),
                 func.date(Payment.captured_at).label("booking_date"),
                 literal("AI Credits").label("type"),
-                literal("other").label("source_category")
+                literal("other").label("source_category"),
+                literal(1).label("purchase_weight")
             )
             .select_from(Payment)
             .outerjoin(Client, Payment.customer_id == Client.client_id)
@@ -1292,7 +1319,8 @@ async def export_purchase_count_summary(
                 gym_exists_join.c.gym_name,
                 func.date(Payment.captured_at).label("booking_date"),
                 literal("Membership").label("type"),
-                literal("other").label("source_category")
+                literal("other").label("source_category"),
+                literal(1).label("purchase_weight")
             )
             .select_from(Payment)
             .join(Order, Order.id == Payment.order_id)
@@ -1322,7 +1350,8 @@ async def export_purchase_count_summary(
                 unified_detailed.c.gym_name,
                 unified_detailed.c.booking_date,
                 Client.name.label("client_name"),
-                Client.contact.label("client_contact")
+                Client.contact.label("client_contact"),
+                unified_detailed.c.purchase_weight
             )
             .join(Client, Client.client_id == unified_detailed.c.client_id)
             .where(
@@ -1359,7 +1388,7 @@ async def export_purchase_count_summary(
                 }
             
             agg = aggregated_data[cid]
-            agg["num_bookings"] += 1
+            agg["num_bookings"] += int(r.purchase_weight or 1)
             if r.gym_name:
                 agg["gym_names"].add(r.gym_name)
             if r.booking_date:
@@ -3367,6 +3396,29 @@ async def get_nutritionist_plans(
         # Contacts to always exclude (internal/test accounts)
         EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
 
+        from app.models.nutrition_models import NutritionEligibility, NutritionBooking
+        from sqlalchemy import String
+
+        # Subquery to get latest booking per eligibility source_id (payments.order_id)
+        booking_subquery = (
+            select(
+                NutritionEligibility.source_id.label("eligibility_source_id"),
+                NutritionBooking.booking_date.label("booking_date"),
+                NutritionBooking.status.label("booking_status"),
+                NutritionBooking.session_number.label("session_number"),
+                func.row_number().over(
+                    partition_by=NutritionEligibility.source_id,
+                    order_by=desc(NutritionBooking.booking_date)
+                ).label("row_num")
+            )
+            .select_from(NutritionEligibility)
+            .join(
+                NutritionBooking,
+                NutritionEligibility.id == NutritionBooking.eligibility_id
+            )
+            .subquery()
+        )
+
         # Build base query for Payment table — always join Client to apply exclusion
         base_payment_query = (
             select(Payment.customer_id)
@@ -3399,7 +3451,7 @@ async def get_nutritionist_plans(
         unique_count_result = await db.execute(unique_count_stmt)
         unique_users_count = unique_count_result.scalar() or 0
 
-        # Build main query with all columns
+        # Build main query with all columns and booking details
         query = (
             select(
                 Payment.id.label("purchase_id"),
@@ -3410,10 +3462,20 @@ async def get_nutritionist_plans(
                 Client.client_id.label("client_id"),
                 Client.name.label("client_name"),
                 Client.contact.label("client_contact"),
-                Client.created_at.label("client_created_at")
+                Client.created_at.label("client_created_at"),
+                booking_subquery.c.booking_date.label("booked_date_value"),
+                booking_subquery.c.booking_status.label("booked_status_value"),
+                booking_subquery.c.session_number.label("session_number_value")
             )
             .select_from(Payment)
             .outerjoin(Client, Payment.customer_id == Client.client_id)
+            .outerjoin(
+                booking_subquery,
+                and_(
+                    cast(Payment.order_id, String) == booking_subquery.c.eligibility_source_id,
+                    booking_subquery.c.row_num == 1
+                )
+            )
             .where(Payment.status == "captured")
             .where(or_(
                 func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_purchase_googleplay',
@@ -3474,21 +3536,33 @@ async def get_nutritionist_plans(
         # Format response with required columns
         nutritionist_plan_users = []
         for row in rows:
-            # Extract booked_date from payment_metadata
+            # Format booked_date from the matched booking_subquery
             booked_date = None
-            if row.payment_metadata and isinstance(row.payment_metadata, dict):
-                booking_id = row.payment_metadata.get("booking_id")
-                if booking_id:
-                    # Format as date if it's a timestamp
-                    try:
-                        booked_date = datetime.fromisoformat(booking_id.replace('Z', '+00:00'))
-                        booked_date = booked_date.strftime("%Y-%m-%d")
-                    except:
-                        booked_date = str(booking_id)
+            if row.booked_date_value:
+                try:
+                    booked_date = row.booked_date_value.strftime("%Y-%m-%d")
+                except:
+                    booked_date = str(row.booked_date_value)
 
             # Format dates and amounts
             purchased_date = row.purchased_at.strftime("%Y-%m-%d") if row.purchased_at else "N/A"
             amount_rupees = float(row.amount_minor / 100) if row.amount_minor else 0.0
+
+            # Determine the session denominator based on the flow
+            flow = None
+            if row.payment_metadata and isinstance(row.payment_metadata, dict):
+                flow = row.payment_metadata.get("flow")
+
+            denominator = ""
+            if flow == "basic_nutrition_plan":
+                denominator = "/1"
+            elif flow == "expert_nutrition_plan":
+                denominator = "/4"
+            elif flow == "elite_nutrition_plan":
+                denominator = "/12"
+
+            session_count_val = row.session_number_value if row.session_number_value is not None else 0
+            session_count_str = f"{session_count_val}{denominator}"
 
             user_data = {
                 "id": row.purchase_id,
@@ -3496,10 +3570,10 @@ async def get_nutritionist_plans(
                 "client_id": row.client_id,
                 "client_name": row.client_name or "N/A",
                 "mobile": row.client_contact or "N/A",
-                "gym_name": "N/A",
-                "gym_location": "N/A",
                 "purchased_date": purchased_date,
                 "booked_date": booked_date or "N/A",
+                "status": row.booked_status_value or "N/A",
+                "session_count": session_count_str,
                 "amount": amount_rupees
             }
             nutritionist_plan_users.append(user_data)
@@ -3543,6 +3617,29 @@ async def export_nutritionist_plans(
     """
     try:
         EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
+        from app.models.nutrition_models import NutritionEligibility, NutritionBooking
+        from sqlalchemy import String
+
+        # Subquery to get latest booking per eligibility source_id (payments.order_id)
+        booking_subquery = (
+            select(
+                NutritionEligibility.source_id.label("eligibility_source_id"),
+                NutritionBooking.booking_date.label("booking_date"),
+                NutritionBooking.status.label("booking_status"),
+                NutritionBooking.session_number.label("session_number"),
+                func.row_number().over(
+                    partition_by=NutritionEligibility.source_id,
+                    order_by=desc(NutritionBooking.booking_date)
+                ).label("row_num")
+            )
+            .select_from(NutritionEligibility)
+            .join(
+                NutritionBooking,
+                NutritionEligibility.id == NutritionBooking.eligibility_id
+            )
+            .subquery()
+        )
+
         query = (
             select(
                 Payment.id.label("purchase_id"),
@@ -3553,10 +3650,20 @@ async def export_nutritionist_plans(
                 Client.client_id.label("client_id"),
                 Client.name.label("client_name"),
                 Client.contact.label("client_contact"),
-                Client.created_at.label("client_created_at")
+                Client.created_at.label("client_created_at"),
+                booking_subquery.c.booking_date.label("booked_date_value"),
+                booking_subquery.c.booking_status.label("booked_status_value"),
+                booking_subquery.c.session_number.label("session_number_value")
             )
             .select_from(Payment)
             .outerjoin(Client, Payment.customer_id == Client.client_id)
+            .outerjoin(
+                booking_subquery,
+                and_(
+                    cast(Payment.order_id, String) == booking_subquery.c.eligibility_source_id,
+                    booking_subquery.c.row_num == 1
+                )
+            )
             .where(Payment.status == "captured")
             .where(or_(
                 func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_purchase_googleplay',
@@ -3578,8 +3685,8 @@ async def export_nutritionist_plans(
         ws = wb.active
         ws.title = "Nutritionist Plans"
 
-        # Write NEW header - matching the requirements
-        headers = ["Client Name", "Contact", "Gym Name", "Purchased Date", "Booked Date", "Amount"]
+        # Write NEW header - matching the requirements (removed Gym Name, added Status, Session Count)
+        headers = ["Client Name", "Contact", "Purchased Date", "Scheduled Date", "Status", "Session Count", "Amount"]
         ws.append(headers)
 
         # Style the header row
@@ -3596,34 +3703,42 @@ async def export_nutritionist_plans(
                 return "N/A"
             return date_obj.strftime("%Y-%m-%d")
 
-        # Helper function to extract booked_date from metadata
-        def get_booked_date(payment_metadata):
-            if not payment_metadata or not isinstance(payment_metadata, dict):
-                return "N/A"
-            booking_id = payment_metadata.get("booking_id")
-            if booking_id:
-                # Try to parse as datetime
-                try:
-                    booked_date = datetime.fromisoformat(booking_id.replace('Z', '+00:00'))
-                    return booked_date.strftime("%Y-%m-%d")
-                except:
-                    return str(booking_id)
-            return "N/A"
-
         # Write data rows
         for row in rows:
-            # Extract booked date from payment_metadata
-            booked_date = get_booked_date(row.payment_metadata)
+            # Format booked_date from the matched booking_subquery
+            booked_date = "N/A"
+            if row.booked_date_value:
+                try:
+                    booked_date = row.booked_date_value.strftime("%Y-%m-%d")
+                except:
+                    booked_date = str(row.booked_date_value)
 
             # Format amount in rupees
             amount_rupees = float(row.amount_minor / 100) if row.amount_minor else 0.0
 
+            # Determine the session denominator based on the flow
+            flow = None
+            if row.payment_metadata and isinstance(row.payment_metadata, dict):
+                flow = row.payment_metadata.get("flow")
+
+            denominator = ""
+            if flow == "basic_nutrition_plan":
+                denominator = "/1"
+            elif flow == "expert_nutrition_plan":
+                denominator = "/4"
+            elif flow == "elite_nutrition_plan":
+                denominator = "/12"
+
+            session_count_val = row.session_number_value if row.session_number_value is not None else 0
+            session_count_str = f"{session_count_val}{denominator}"
+
             ws.append([
                 row.client_name or "N/A",
                 row.client_contact or "N/A",
-                "N/A",  # Gym Name - not available for nutritionist plans
                 format_date(row.purchased_at),
                 booked_date,
+                row.booked_status_value or "N/A",
+                session_count_str,
                 f"{amount_rupees:.2f}"
             ])
 
@@ -3937,11 +4052,11 @@ async def get_client_purchase_summary(
         client_contact = (await db.execute(client_contact_stmt)).scalar()
         is_test_client = client_contact in EXCLUDED_CONTACTS
 
-        # 1. Daily Pass grouped by Gym
+        # 1. Daily Pass grouped by Gym (Option A: Days * Headcount)
         dp_stmt = (
             select(
                 Gym.name.label("gym_name"),
-                func.count(DailyPass.id).label("count")
+                func.coalesce(func.sum(DailyPass.days_total * DailyPass.head_count), 0).label("count")
             )
             .select_from(DailyPass)
             .join(Gym, cast(DailyPass.gym_id, Integer) == Gym.gym_id)
@@ -3955,11 +4070,11 @@ async def get_client_purchase_summary(
             .group_by(Gym.name)
         )
 
-        # 2. Fitness Class (SessionPurchase) grouped by Gym
+        # 2. Fitness Class (SessionPurchase) grouped by Gym (sessions_count)
         sess_stmt = (
             select(
                 Gym.name.label("gym_name"),
-                func.count(SessionPurchase.id).label("count")
+                func.coalesce(func.sum(SessionPurchase.sessions_count), 0).label("count")
             )
             .select_from(SessionPurchase)
             .join(Gym, SessionPurchase.gym_id == Gym.gym_id)
