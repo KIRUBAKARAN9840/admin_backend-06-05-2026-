@@ -494,6 +494,8 @@ class NutritionConsultationForm(Base):
     gender = Column(String(50), nullable=True)
     occupation = Column(String(255), nullable=True)
     main_health_goal = Column(Text, nullable=True)
+    native = Column(String(255), nullable=True)
+    current_place = Column(String(255), nullable=True)
     
     # Section 2: Anthropometric Assessment
     anthropometric_table = Column(JSON, nullable=True) # Current/Goal for Weight, Height, BMI, etc.

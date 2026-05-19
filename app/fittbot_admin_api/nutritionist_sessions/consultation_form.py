@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, text
 from typing import Dict, Any, Optional
 from pydantic import BaseModel
 
@@ -18,6 +18,8 @@ class ConsultationFormRequest(BaseModel):
     gender: Optional[str] = None
     occupation: Optional[str] = None
     main_health_goal: Optional[str] = None
+    native: Optional[str] = None
+    current_place: Optional[str] = None
     
     anthropometric_table: Optional[Dict] = None
     recent_changes: Optional[Dict] = None
