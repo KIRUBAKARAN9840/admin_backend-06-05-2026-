@@ -35,23 +35,36 @@ from app.models.dailypass_models import DailyPassPricing, get_dailypass_session,
 
 router = APIRouter(prefix="/api/admin/dashboard", tags=["AdminDashboard"])
 
-async def get_monthly_active_users(db: AsyncSession, today: datetime.date) -> int:
+async def get_monthly_active_users(
+    db: AsyncSession, 
+    start_date: Optional[datetime.date] = None, 
+    end_date: Optional[datetime.date] = None,
+    is_overall: bool = False
+) -> int:
     """
     Get count of distinct client_ids from active_users table
-    where created_at is within the last 30 days.
+    where created_at is within the specified date range.
     Requires only 1+ login (same logic as /users-stats Active Users).
     Excludes users from gym_id = 1.
     """
     try:
-        thirty_days_ago = today - timedelta(days=30)
-        end_date_inclusive = today + timedelta(days=1)
+        active_filters = []
+        if not is_overall:
+            if start_date:
+                active_filters.append(ActiveUser.created_at >= datetime.combine(start_date, datetime.min.time()))
+            else:
+                # Default to last 30 days
+                thirty_days_ago = datetime.now().date() - timedelta(days=30)
+                active_filters.append(ActiveUser.created_at >= datetime.combine(thirty_days_ago, datetime.min.time()))
+        
+        if end_date:
+            active_filters.append(ActiveUser.created_at <= datetime.combine(end_date, datetime.max.time()))
 
         active_subquery = select(ActiveUser.client_id).join(
             Client, ActiveUser.client_id == Client.client_id
         ).where(
             and_(
-                ActiveUser.created_at >= thirty_days_ago,
-                ActiveUser.created_at < end_date_inclusive,
+                *active_filters,
                 or_(Client.gym_id != 1, Client.gym_id.is_(None))
             )
         )
@@ -66,9 +79,7 @@ async def get_monthly_active_users(db: AsyncSession, today: datetime.date) -> in
         count = result.scalar()
         return int(count) if count is not None else 0
     except Exception as e:
-        print(f"[MONTHLY_ACTIVE_USERS] Error fetching monthly active users: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"[MONTHLY_ACTIVE_USERS] Error fetching active users: {e}")
         return 0
 
 async def get_total_paying_users(db: AsyncSession) -> int:
@@ -151,8 +162,20 @@ async def get_fittbot_metrics(db: AsyncSession, filter_type='month'):
     # Monthly revenue trends for last 6 months
     monthly_revenue_trends = await calculate_monthly_revenue_trends(db, today)
 
-    # Monthly active users (last 30 days)
-    monthly_active_users = await get_monthly_active_users(db, today)
+    # Monthly active users calculations for all filters
+    active_users_today = await get_monthly_active_users(db, today, today)
+    active_users_yesterday = await get_monthly_active_users(db, today - timedelta(days=1), today - timedelta(days=1))
+    active_users_week = await get_monthly_active_users(db, today - timedelta(days=7), today)
+    active_users_month = await get_monthly_active_users(db, today - timedelta(days=30), today)
+    
+    first_day_of_last_month = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+    last_day_of_last_month = today.replace(day=1) - timedelta(days=1)
+    active_users_last_month = await get_monthly_active_users(db, first_day_of_last_month, last_day_of_last_month)
+    
+    first_day_of_current_month = today.replace(day=1)
+    active_users_current_month = await get_monthly_active_users(db, first_day_of_current_month, today)
+    
+    active_users_overall = await get_monthly_active_users(db, is_overall=True)
 
     # Total paying users (distinct customer_id from payments table)
     total_paying_users = await get_total_paying_users(db)
@@ -167,7 +190,15 @@ async def get_fittbot_metrics(db: AsyncSession, filter_type='month'):
         },
         "revenue": revenue_data,
         "subscribedUsers": subscribed_users_data,
-        "monthlyActiveUsers": monthly_active_users,
+        "monthlyActiveUsers": {
+            "today": active_users_today,
+            "yesterday": active_users_yesterday,
+            "week": active_users_week,
+            "month": active_users_month,
+            "lastMonth": active_users_last_month,
+            "currentMonth": active_users_current_month,
+            "overall": active_users_overall
+        },
         "totalPayingUsers": total_paying_users,
         "monthlyRevenueTrends": monthly_revenue_trends
     }
@@ -214,8 +245,8 @@ async def get_fittbot_metrics_custom(db: AsyncSession, start_date: str, end_date
     result = await db.execute(stmt)
     subscribed_custom = result.scalar() or 0
 
-    # Monthly active users - use end_date to get active users up to the custom range end date
-    monthly_active_users_custom = await get_monthly_active_users(db, end_date_obj)
+    # Monthly active users - use start_date and end_date to get active users in custom range
+    monthly_active_users_custom = await get_monthly_active_users(db, start_date_obj, end_date_obj)
 
     # Total paying users (distinct customer_id from payments table)
     total_paying_users_custom = await get_total_paying_users(db)
@@ -242,7 +273,16 @@ async def get_fittbot_metrics_custom(db: AsyncSession, start_date: str, end_date
             "overall": 0,
             "custom": subscribed_custom
         },
-        "monthlyActiveUsers": monthly_active_users_custom,
+        "monthlyActiveUsers": {
+            "today": 0,
+            "yesterday": 0,
+            "week": 0,
+            "month": 0,
+            "lastMonth": 0,
+            "currentMonth": 0,
+            "overall": 0,
+            "custom": monthly_active_users_custom
+        },
         "totalPayingUsers": total_paying_users_custom,
         "monthlyRevenueTrends": []
     }
