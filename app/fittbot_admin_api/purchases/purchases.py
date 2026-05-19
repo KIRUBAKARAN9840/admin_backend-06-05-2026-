@@ -738,7 +738,7 @@ async def get_booking_count(
     end_time: Optional[str] = None,
     db: AsyncSession = Depends(get_async_db)
 ):
-    """Get booking count with date filter."""
+    """Get booking count using compute_gmv_totals shared logic."""
     from datetime import datetime, timezone, timedelta
     import calendar
 
@@ -749,64 +749,51 @@ async def get_booking_count(
 
         if date_filter == "yesterday":
             yesterday = today - timedelta(days=1)
-            start_datetime = datetime.combine(yesterday, datetime.min.time()).replace(tzinfo=IST)
-            end_datetime = datetime.combine(yesterday, datetime.max.time()).replace(tzinfo=IST)
+            start_date_obj = yesterday
+            end_date_obj = yesterday
         elif date_filter == "last7days":
-            start_datetime = datetime.combine(today - timedelta(days=6), datetime.min.time()).replace(tzinfo=IST)
-            end_datetime = datetime.combine(today, datetime.max.time()).replace(tzinfo=IST)
+            start_date_obj = today - timedelta(days=6)
+            end_date_obj = today
         elif date_filter == "current_month":
-            start_datetime = datetime.combine(today.replace(day=1), datetime.min.time()).replace(tzinfo=IST)
+            start_date_obj = today.replace(day=1)
             last_day = calendar.monthrange(today.year, today.month)[1]
-            end_datetime = datetime.combine(today.replace(day=last_day), datetime.max.time()).replace(tzinfo=IST)
+            end_date_obj = today.replace(day=last_day)
         elif date_filter == "last_month":
             if today.month == 1:
                 first_day = today.replace(month=12, day=1, year=today.year - 1)
             else:
                 first_day = today.replace(month=today.month - 1, day=1)
             last_day = calendar.monthrange(first_day.year, first_day.month)[1]
-            end_datetime = datetime.combine(first_day.replace(day=last_day), datetime.max.time()).replace(tzinfo=IST)
-            start_datetime = datetime.combine(first_day, datetime.min.time()).replace(tzinfo=IST)
+            start_date_obj = first_day
+            end_date_obj = first_day.replace(day=last_day)
         elif date_filter == "overall":
-            start_datetime = datetime(2020, 1, 1).replace(tzinfo=IST)
-            end_datetime = datetime.combine(today, datetime.max.time()).replace(tzinfo=IST)
+            start_date_obj = None
+            end_date_obj = None
         elif date_filter == "custom" and start_time and end_time:
             if 'T' in start_time:
-                start_datetime = datetime.fromisoformat(start_time.replace('Z', '+00:00')).replace(tzinfo=IST)
+                start_date_obj = datetime.fromisoformat(start_time.replace('Z', '+00:00')).date()
             else:
-                start_datetime = datetime.combine(datetime.fromisoformat(start_time).date(), datetime.min.time()).replace(tzinfo=IST)
+                start_date_obj = datetime.fromisoformat(start_time).date()
                 
             if 'T' in end_time:
-                end_datetime = datetime.fromisoformat(end_time.replace('Z', '+00:00')).replace(tzinfo=IST)
+                end_date_obj = datetime.fromisoformat(end_time.replace('Z', '+00:00')).date()
             else:
-                end_datetime = datetime.combine(datetime.fromisoformat(end_time).date(), datetime.max.time()).replace(tzinfo=IST)
+                end_date_obj = datetime.fromisoformat(end_time).date()
         else:
-            start_datetime = datetime.combine(today, datetime.min.time()).replace(tzinfo=IST)
-            end_datetime = datetime.combine(today, datetime.max.time()).replace(tzinfo=IST)
+            start_date_obj = today
+            end_date_obj = today
 
-        # Count DailyPass bookings (unique purchases)
-        daily_pass_query = (
-            select(func.count(DailyPass.id))
-            .select_from(DailyPass)
-            .join(Gym, cast(DailyPass.gym_id, Integer) == Gym.gym_id)
-            .where(DailyPass.gym_id != "1")
-            .where(DailyPass.created_at >= start_datetime)
-            .where(DailyPass.created_at <= end_datetime)
+        # Delegate calculation directly to shared compute_gmv_totals and sum all 6 categories
+        totals = await compute_gmv_totals(db, start_date_obj, end_date_obj)
+
+        total_count = int(
+            totals["daily_pass"]["count"] +
+            totals["session"]["count"] +
+            totals["nutrition_plan"]["count"] +
+            totals["gym_membership"]["count"] +
+            totals["ai_credits"]["count"] +
+            totals["ai_diet_coach"]["count"]
         )
-
-        # Count SessionPurchase bookings (unique purchases, only paid status)
-        session_query = (
-            select(func.count(SessionPurchase.id))
-            .select_from(SessionPurchase)
-            .join(Gym, SessionPurchase.gym_id == Gym.gym_id)
-            .where(SessionPurchase.status == "paid")
-            .where(SessionPurchase.gym_id != 1)
-            .where(SessionPurchase.created_at >= start_datetime)
-            .where(SessionPurchase.created_at <= end_datetime)
-        )
-
-        daily_pass_count = (await db.execute(daily_pass_query)).scalar() or 0
-        session_count = (await db.execute(session_query)).scalar() or 0
-        total_count = int(daily_pass_count) + int(session_count)
 
         return {
             "success": True,
