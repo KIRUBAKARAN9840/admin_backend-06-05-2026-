@@ -2988,209 +2988,22 @@ async def get_purchase_analytics(
 async def get_booking_averages(
     db: AsyncSession = Depends(get_async_db)
 ):
-    """
-    Get average bookings for different time periods with source breakdown.
-    Returns monthly average (last 3 months), weekly average (last 3 weeks),
-    and daily average (last 3 days), each broken down by source.
-    """
     try:
         today = datetime.now().date()
 
-        # Helper function to get purchases by source for a date range
+        # Helper function to get purchases by source for a date range using compute_gmv_totals shared logic
         async def get_purchases_by_source(start_date, end_date):
-            """Get purchases from all sources for a date range, broken down by source."""
-            result = {
-                "daily_pass": 0,
-                "sessions": 0,
-                "gym_membership": 0,
-                "fittbot_subscription": 0,
-                "ai_credits": 0,
-                "ai_diet_coach": 0
+            """Get purchases from all sources for a date range, broken down by source using compute_gmv_totals."""
+            from app.fittbot_admin_api.purchases.purchases import compute_gmv_totals
+            totals = await compute_gmv_totals(db, start_date, end_date)
+            return {
+                "daily_pass": int(totals.get("daily_pass", {}).get("count") or 0),
+                "sessions": int(totals.get("session", {}).get("count") or 0),
+                "gym_membership": int(totals.get("gym_membership", {}).get("count") or 0),
+                "fittbot_subscription": int(totals.get("nutrition_plan", {}).get("count") or 0),
+                "ai_credits": int(totals.get("ai_credits", {}).get("count") or 0),
+                "ai_diet_coach": int(totals.get("ai_diet_coach", {}).get("count") or 0)
             }
-
-            # 1. Daily Pass purchases
-            try:
-                dailypass_session = get_dailypass_session()
-                dp_count = dailypass_session.query(func.count()).filter(
-                    and_(
-                        func.date(DailyPass.created_at) >= start_date,
-                        func.date(DailyPass.created_at) <= end_date,
-                        DailyPass.gym_id != "1"
-                    )
-                ).scalar()
-                result["daily_pass"] = dp_count or 0
-                dailypass_session.close()
-            except Exception:
-                pass
-
-            # 2. Session purchases (via SessionBookingDay)
-            try:
-                session_count_stmt = select(func.count()).select_from(SessionBookingDay).where(
-                    and_(
-                        func.date(SessionBookingDay.booking_date) >= start_date,
-                        func.date(SessionBookingDay.booking_date) <= end_date,
-                        SessionBookingDay.gym_id != 1
-                    )
-                )
-                session_result = await db.execute(session_count_stmt)
-                result["sessions"] = session_result.scalar() or 0
-            except Exception:
-                pass
-
-            # 3. Gym membership purchases (from Order/OrderItem with metadata)
-            try:
-                gym_membership_start = datetime.combine(start_date, datetime.min.time())
-                gym_membership_end = datetime.combine(end_date, datetime.min.time()).replace(hour=23, minute=59, second=59)
-
-                order_ids_subquery = (
-                    select(Order.id)
-                    .join(Payment, Payment.order_id == Order.id)
-                    .where(
-                        and_(
-                            Payment.status == "captured",
-                            Order.status == "paid",
-                            Payment.captured_at >= gym_membership_start,
-                            Payment.captured_at <= gym_membership_end
-                        )
-                    )
-                )
-
-                orders_result = await db.execute(order_ids_subquery)
-                order_ids = [row[0] for row in orders_result.all()]
-
-                if order_ids:
-                    order_items_stmt = select(OrderItem).where(
-                        and_(
-                            OrderItem.order_id.in_(order_ids),
-                            OrderItem.gym_id.isnot(None),
-                            OrderItem.gym_id != "1"
-                        )
-                    )
-                    order_items_result = await db.execute(order_items_stmt)
-                    order_items = order_items_result.scalars().all()
-
-                    for item in order_items:
-                        if item.order_id:
-                            order_stmt = select(Order).where(Order.id == item.order_id)
-                            order_result = await db.execute(order_stmt)
-                            order = order_result.scalar_one_or_none()
-
-                            if order and order.order_metadata and isinstance(order.order_metadata, dict):
-                                metadata = order.order_metadata
-                                condition1 = False
-                                if metadata.get("audit") and isinstance(metadata.get("audit"), dict):
-                                    if metadata["audit"].get("source") == "dailypass_checkout_api":
-                                        condition1 = True
-
-                                condition2 = False
-                                if metadata.get("order_info") and isinstance(metadata.get("order_info"), dict):
-                                    if metadata["order_info"].get("flow") == "unified_gym_membership_with_sub":
-                                        condition2 = True
-
-                                condition3 = False
-                                if metadata.get("order_info") and isinstance(metadata.get("order_info"), dict):
-                                    if metadata["order_info"].get("flow") == "unified_gym_membership_with_free_fittbot":
-                                        condition3 = True
-
-                                condition4 = False
-                                if metadata.get("order_info") and isinstance(metadata.get("order_info"), dict):
-                                    if metadata["order_info"].get("flow") == "gym_membership_with_bonus_credits":
-                                        condition4 = True
-
-                                if condition1 or condition2 or condition3 or condition4:
-                                    result["gym_membership"] += 1
-            except Exception:
-                pass
-
-            # 4. Nutritionist Plan (Fittbot subscription) purchases
-            # Filter: payment_metadata['flow'] == 'nutrition_purchase_googleplay' or 'nutrition_package_razorpay'
-            # Exclude internal/test contacts: 7373675762, 9486987082, 8667458723
-            try:
-                EXCLUDED_CONTACTS_NUTRI = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
-                subscription_start = datetime.combine(start_date, datetime.min.time())
-                subscription_end = datetime.combine(end_date, datetime.min.time()).replace(hour=23, minute=59, second=59)
-
-                nutritionist_stmt = (
-                    select(func.count(Payment.id))
-                    .select_from(Payment)
-                    .outerjoin(Client, Payment.customer_id == Client.client_id)
-                    .where(
-                        and_(
-                            Payment.status == "captured",
-                            or_(
-                                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_purchase_googleplay',
-                                func.json_extract(Payment.payment_metadata, '$.flow') == 'nutrition_package_razorpay',
-                                func.json_extract(Payment.payment_metadata, '$.flow') == 'basic_nutrition_plan',
-                                func.json_extract(Payment.payment_metadata, '$.flow') == 'expert_nutrition_plan',
-                                func.json_extract(Payment.payment_metadata, '$.flow') == 'elite_nutrition_plan'
-                            ),
-                            Payment.captured_at >= subscription_start,
-                            Payment.captured_at <= subscription_end,
-                            ~Client.contact.in_(EXCLUDED_CONTACTS_NUTRI)
-                        )
-                    )
-                )
-                query_result = await db.execute(nutritionist_stmt)
-                result["fittbot_subscription"] = query_result.scalar() or 0
-            except Exception:
-                pass
-
-            # 5. AI Credits purchases
-            # Filter: payment_metadata['flow'] == 'food_scanner_credits' or 'food_scanner_credits_razorpay'
-            # Exclude internal/test contacts: 7373675762, 9486987082, 8667458723
-            try:
-                EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
-                ai_start = datetime.combine(start_date, datetime.min.time())
-                ai_end = datetime.combine(end_date, datetime.min.time()).replace(hour=23, minute=59, second=59)
-
-                ai_stmt = (
-                    select(func.count(Payment.id))
-                    .select_from(Payment)
-                    .outerjoin(Client, Payment.customer_id == Client.client_id)
-                    .where(
-                        and_(
-                            Payment.status == "captured",
-                            or_(
-                                func.json_extract(Payment.payment_metadata, '$.flow') == 'food_scanner_credits',
-                                func.json_extract(Payment.payment_metadata, '$.flow') == 'food_scanner_credits_razorpay'
-                            ),
-                            Payment.captured_at >= ai_start,
-                            Payment.captured_at <= ai_end,
-                            ~Client.contact.in_(EXCLUDED_CONTACTS)
-                        )
-                    )
-                )
-                ai_result = await db.execute(ai_stmt)
-                result["ai_credits"] = ai_result.scalar() or 0
-            except Exception:
-                pass
-
-            # 6. AI Diet Coach purchases
-            try:
-                EXCLUDED_CONTACTS = ["7373675762", "9486987082", "8667458723", "9840633149", "8667427956", "8667488723", "7975847236"]
-                ai_diet_start = datetime.combine(start_date, datetime.min.time())
-                ai_diet_end = datetime.combine(end_date, datetime.min.time()).replace(hour=23, minute=59, second=59)
-
-                ai_diet_stmt = (
-                    select(func.count(Payment.id))
-                    .select_from(Payment)
-                    .outerjoin(Client, Payment.customer_id == Client.client_id)
-                    .where(
-                        and_(
-                            Payment.status == "captured",
-                            func.json_extract(Payment.payment_metadata, '$.flow') == 'ai_diet_coach',
-                            Payment.captured_at >= ai_diet_start,
-                            Payment.captured_at <= ai_diet_end,
-                            ~Client.contact.in_(EXCLUDED_CONTACTS)
-                        )
-                    )
-                )
-                ai_diet_result = await db.execute(ai_diet_stmt)
-                result["ai_diet_coach"] = ai_diet_result.scalar() or 0
-            except Exception:
-                pass
-
-            return result
 
         # Helper to calculate average from list of source-wise data
         def calculate_source_averages(data_list):
@@ -3208,22 +3021,24 @@ async def get_booking_averages(
                 "ai_diet_coach": round(sum(d.get("ai_diet_coach", 0) for d in data_list) / num_points, 2)
             }
 
-        # Calculate Daily Average (last 3 days) with source breakdown
+        # Calculate Daily Average (last 7 completed days, excluding today) with source breakdown
         daily_source_data = []
-        for i in range(3):
-            day_date = today - timedelta(days=i)
+        for i in range(7):
+            day_date = today - timedelta(days=i + 1)
             day_data = await get_purchases_by_source(day_date, day_date)
             daily_source_data.append(day_data)
         daily_average = calculate_source_averages(daily_source_data)
 
-        # Calculate Weekly Average (last 3 FULL weeks) with source breakdown
+        # Calculate Weekly Average (last 4 completed calendar weeks: Monday to Sunday) with source breakdown
         weekly_source_data = []
-        for i in range(3):
-            # Last 3 FULL weeks - exclude current incomplete week
-            # Week 1: 7-13 days ago (full week)
-            # Week 2: 14-20 days ago (full week)
-            # Week 3: 21-27 days ago (full week)
-            week_end = today - timedelta(days=(i * 7) + 1)  # Start from yesterday to ensure full week
+        # Find the start of the current week (Monday)
+        current_week_start = today - timedelta(days=today.weekday())
+        for i in range(4):
+            # i = 0: Previous calendar week (ends on preceding Sunday, starts on preceding Monday)
+            # i = 1: 2 calendar weeks ago
+            # i = 2: 3 calendar weeks ago
+            # i = 3: 4 calendar weeks ago
+            week_end = current_week_start - timedelta(days=(i * 7) + 1)
             week_start = week_end - timedelta(days=6)
             week_data = await get_purchases_by_source(week_start, week_end)
             weekly_source_data.append(week_data)
