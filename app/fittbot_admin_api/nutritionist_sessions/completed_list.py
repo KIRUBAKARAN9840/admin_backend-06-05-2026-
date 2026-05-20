@@ -127,6 +127,7 @@ async def get_completed_sessions_list(
             CompletedSession.schedule_id,
             CompletedSession.meeting_duration,
             CompletedSession.feedback_advice,
+            CompletedSession.notes,
             CompletedSession.interested_in_nutrition_product,
             CompletedSession.slot_date,
             CompletedSession.slot_time,
@@ -145,8 +146,7 @@ async def get_completed_sessions_list(
         ).where(
             and_(*conditions)
         ).order_by(
-            desc(CompletedSession.slot_date),
-            desc(CompletedSession.slot_time)
+            desc(CompletedSession.created_at)
         ).offset(
             offset
         ).limit(
@@ -168,6 +168,7 @@ async def get_completed_sessions_list(
                 "schedule_id": session.schedule_id,
                 "meeting_duration": session.meeting_duration,
                 "feedback_advice": session.feedback_advice,
+                "notes": session.notes,
                 "interested_in_nutrition_product": session.interested_in_nutrition_product,
                 "slot_date": convert_date_to_irst(session.slot_date),
                 "slot_time": format_time_slot(session.slot_time),
@@ -406,3 +407,109 @@ async def get_assign_template_data(
             status_code=500,
             detail=f"An error occurred while fetching template data: {str(e)}"
         )
+
+
+@router.get("/client/{client_id}")
+async def get_completed_sessions_for_client(
+    client_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    admin: Admins = Depends(get_current_admin_from_cookie)
+):
+    """
+    Get completed sessions specifically for a client by client_id.
+    Matches the client_id with completed_sessions.client_id.
+    """
+    try:
+        # Check that nutritionist is active (for admin authorization/context)
+        nutritionist_query = select(
+            Nutritionist.id.label('nutritionist_id')
+        ).where(
+            and_(
+                Nutritionist.contact == admin.contact_number,
+                Nutritionist.is_active == True
+            )
+        )
+
+        nutritionist_result = await db.execute(nutritionist_query)
+        nutritionist_row = nutritionist_result.first()
+
+        if not nutritionist_row:
+            raise HTTPException(
+                status_code=403,
+                detail="You must be an active nutritionist to view client history."
+            )
+
+        query = select(
+            CompletedSession.id,
+            CompletedSession.client_id,
+            CompletedSession.nutritionist_id,
+            CompletedSession.booking_id,
+            CompletedSession.schedule_id,
+            CompletedSession.meeting_duration,
+            CompletedSession.feedback_advice,
+            CompletedSession.notes,
+            CompletedSession.interested_in_nutrition_product,
+            CompletedSession.slot_date,
+            CompletedSession.slot_time,
+            CompletedSession.created_at,
+            Client.name.label('client_name'),
+            ClientDietTemplate.template_id.label('assigned_diet_template_id'),
+            ClientDietTemplate.template_name.label('assigned_diet_template_name'),
+            Nutritionist.full_name.label('nutritionist_name')
+        ).select_from(
+            CompletedSession
+        ).outerjoin(
+            Client,
+            CompletedSession.client_id == Client.client_id
+        ).outerjoin(
+            ClientDietTemplate,
+            CompletedSession.booking_id == ClientDietTemplate.booking_id
+        ).outerjoin(
+            Nutritionist,
+            CompletedSession.nutritionist_id == Nutritionist.id
+        ).where(
+            CompletedSession.client_id == client_id
+        ).order_by(
+            desc(CompletedSession.created_at)
+        )
+
+        result = await db.execute(query)
+        sessions = result.all()
+
+        # Format response
+        completed_sessions = []
+        for session in sessions:
+            completed_sessions.append({
+                "id": session.id,
+                "client_id": session.client_id,
+                "client_name": session.client_name,
+                "nutritionist_id": session.nutritionist_id,
+                "nutritionist_name": session.nutritionist_name,
+                "booking_id": session.booking_id,
+                "schedule_id": session.schedule_id,
+                "meeting_duration": session.meeting_duration,
+                "feedback_advice": session.feedback_advice,
+                "notes": session.notes,
+                "interested_in_nutrition_product": session.interested_in_nutrition_product,
+                "slot_date": convert_date_to_irst(session.slot_date),
+                "slot_time": format_time_slot(session.slot_time),
+                "created_at": session.created_at.isoformat() if session.created_at else None,
+                "assigned_diet_template_id": session.assigned_diet_template_id,
+                "assigned_diet_template_name": session.assigned_diet_template_name
+            })
+
+        return {
+            "success": True,
+            "data": {
+                "sessions": completed_sessions
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while fetching completed sessions for client: {str(e)}"
+        )
+

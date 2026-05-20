@@ -161,7 +161,7 @@ async def get_bookings(
                 "start_time": _as_time_str(booking.start_time),
                 "end_time": _as_time_str(booking.end_time),
                 "status": booking.status,
-                "notes": booking.notes,
+                "notes": None,
                 "is_upcoming": booking.booking_date >= today and booking.status in ["booked", "pending"],
             })
 
@@ -267,7 +267,6 @@ async def mark_session_attended(
 
         # Update booking status
         booking.status = "attended"
-        booking.notes = payload.summary
         db.add(booking)
 
         # Decrement remaining sessions in eligibility

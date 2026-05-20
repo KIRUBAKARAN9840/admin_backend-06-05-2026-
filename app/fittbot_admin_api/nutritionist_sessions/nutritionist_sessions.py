@@ -1,3 +1,5 @@
+from openpyxl.cell.cell import ERROR_CODES
+from openai import pagination
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func, cast, Date as SQLDate, update
@@ -202,7 +204,6 @@ async def get_sessions_by_date(
             NutritionBooking.end_time,
             NutritionBooking.meeting_link,
             NutritionBooking.status,
-            NutritionBooking.notes,
             NutritionBooking.reschedule_reason,
             NutritionBooking.rescheduled_at,
             NutritionBooking.reschedule_requested_by,
@@ -270,7 +271,7 @@ async def get_sessions_by_date(
                 "client_name": booking.client_name,
                 "meeting_link": booking.meeting_link,
                 "status": display_status,
-                "notes": booking.notes,
+                "notes": None,
                 "reschedule_reason": booking.reschedule_reason,
                 "rescheduled_at": booking.rescheduled_at.isoformat() if booking.rescheduled_at else None,
                 "reschedule_requested_by": booking.reschedule_requested_by,
@@ -635,6 +636,7 @@ class CompleteSessionRequest(BaseModel):
     feedback_advice: str
     interested_in_nutrition_product: bool
     diet_template_id: Optional[int] = None  # Optional: Assign diet template to client
+    notes: Optional[str] = None  # Optional notes
 
 
 class AssignDietTemplateRequest(BaseModel):
@@ -711,6 +713,7 @@ async def complete_session(
             meeting_duration=request_data.meeting_duration,
             feedback_advice=request_data.feedback_advice.strip(),
             interested_in_nutrition_product=request_data.interested_in_nutrition_product,
+            notes=request_data.notes.strip() if request_data.notes else None,
             slot_date=slot_date,
             slot_time=slot_time
         )
@@ -762,6 +765,7 @@ async def complete_session(
             "meeting_duration": request_data.meeting_duration,
             "feedback_advice": request_data.feedback_advice,
             "interested_in_nutrition_product": request_data.interested_in_nutrition_product,
+            "notes": completed_session.notes,
             "slot_date": convert_date_to_irst(slot_date),
             "slot_time": format_time_slot(slot_time),
             "created_at": completed_session.created_at.isoformat() if completed_session.created_at else None

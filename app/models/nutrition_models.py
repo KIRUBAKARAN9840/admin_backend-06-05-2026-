@@ -233,7 +233,6 @@ class NutritionBooking(Base):
     duration_minutes = Column(Integer, nullable=True)  # Actual booked duration (60 or 30)
 
     # Session notes
-    notes = Column(Text, nullable=True)
     meeting_link = Column(String(255),nullable=True)
 
     created_at = Column(DateTime, default=datetime.now)
@@ -267,6 +266,7 @@ class CompletedSession(Base):
     meeting_duration = Column(Integer, nullable=False)
     feedback_advice = Column(Text, nullable=True)
     interested_in_nutrition_product = Column(Boolean, nullable=False, default=False)
+    notes = Column(Text, nullable=True)
 
     # Slot information
     slot_date = Column(Date, nullable=False)
