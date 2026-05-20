@@ -1058,6 +1058,52 @@ async def get_revenue_analytics(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/webinar-registrations-count")
+async def get_webinar_registrations_count(db: AsyncSession = Depends(get_async_db)):
+    """
+    Get total count of webinar registrations from nutrition.webinar_registrations table.
+    """
+    try:
+        from app.models.nutrition_models import WebinarRegistration
+        stmt = select(func.count()).select_from(WebinarRegistration)
+        result = await db.execute(stmt)
+        total = result.scalar() or 0
+        return {"success": True, "data": {"total": total}}
+    except Exception as e:
+        print(f"[DASHBOARD] Error in webinar-registrations-count: {str(e)}")
+        return {"success": True, "data": {"total": 0}}
+
+@router.get("/webinar-registrations")
+async def get_webinar_registrations(db: AsyncSession = Depends(get_async_db)):
+    """
+    Get all webinar registrations from nutrition.webinar_registrations table.
+    """
+    try:
+        from app.models.nutrition_models import WebinarRegistration
+        stmt = select(WebinarRegistration).order_by(desc(WebinarRegistration.created_at))
+        result = await db.execute(stmt)
+        registrations = result.scalars().all()
+        return {
+            "success": True,
+            "data": [
+                {
+                    "id": r.id,
+                    "name": r.name,
+                    "mobile_number": r.mobile_number,
+                    "gender": r.gender,
+                    "location": r.location,
+                    "aim": r.aim,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in registrations
+            ]
+        }
+    except Exception as e:
+        print(f"[DASHBOARD] Error in webinar-registrations: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/recurring-subscribers")
 async def get_recurring_subscribers(db: AsyncSession = Depends(get_async_db)):

@@ -581,3 +581,30 @@ class ClientDoc(Base):
         onupdate=lambda: now_ist().replace(tzinfo=None),
         nullable=False
     )
+
+
+
+class WebinarRegistration(Base):
+    """
+    Pre-login webinar registration entries.
+
+    Mobile number is unique — re-submissions with the same number overwrite
+    the existing row instead of creating a new one.
+    """
+    __tablename__ = "webinar_registrations"
+    __table_args__ = (
+        UniqueConstraint("mobile_number", name="uq_webinar_registrations_mobile"),
+        Index("ix_webinar_registrations_mobile", "mobile_number"),
+        Index("ix_webinar_registrations_created", "created_at"),
+        {"schema": NUTRITION_SCHEMA},
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False)
+    mobile_number = Column(String(20), nullable=False)
+    gender = Column(String(20), nullable=False)
+    location = Column(String(255), nullable=False)
+    aim = Column(Text, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
