@@ -26,6 +26,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         public_paths = ["/app_open/track","/owner/new_registration/register","/owner/new_registration/login","/owner/new_registration/otp_verification",
             # Monitoring & Health (must be public for Prometheus/ECS health checks)
             "/metrics","/monitoring","/health","/docs","/redoc","/openapi.json",
+            # # Local Upload Fallback for Nutritionist Docs
+            # "/api/admin/nutritionist_sessions/local-upload",
+            # "/uploads",
             # Webhooks & Auth
             "/whatsapp/send","/whatsapp/dlr","/whatsapp/dlr-debug","/whatsapp/dlr-reports","/auth/login","/auth/refresh","/razorpay/payments","/razorpay/webhook","/razorpay_payments/webhooks/razorpay","/auth/send-otp","/auth/verify-otp","/auth/change-password","/auth/update_verification_status","/auth/send_verification_otp","/auth/new_gym_owner_registration","/auth/resend-otp","/client/combined_summary","/owner/create_post",
             "/auth/register-user","/attendance/out_punch","/websocket_feed/internal/new_post","/websocket_feed/internal/invalidate_cache","/auth/otp-verification", "/auth/verify-client-otp", "/auth/complete-registeration", "/auth/verify", "/auth/subscription-status","/feed/create_presigned_url","/auth/check-mobile-availability","/gym_photos/registration-presigned-urls","/gym_photos/registration-confirm","/auth/validate-gym-referral-code","/auth/validate-referral-code","/auth/check-trainer","/auth/set-trainer-password",

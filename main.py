@@ -1,6 +1,8 @@
 """FITTBOT API – Enterprise-grade fitness and gym management platform."""
 
+import os
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.config.settings import settings
 from app.utils.logging_config import setup_logging
@@ -18,6 +20,11 @@ app = FastAPI(
     docs_url=None if _is_prod else "/docs",
     redoc_url=None if _is_prod else "/redoc",
 )
+
+# Ensure uploads directory exists for serving static files locally
+os.makedirs("uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
 
 # ── Middleware & Exception Handlers ─────────────────────────────────
 from app.startup import (

@@ -553,3 +553,31 @@ class NutritionConsultationForm(Base):
         onupdate=lambda: now_ist().replace(tzinfo=None),
         nullable=False
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CLIENT_DOCS - Documents uploaded for client management
+# ═══════════════════════════════════════════════════════════════════════════════
+class ClientDoc(Base):
+    """
+    Documents uploaded for client management inside the nutrition schema.
+    """
+    __tablename__ = "clients_docs"
+    __table_args__ = {"schema": NUTRITION_SCHEMA}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    client_id = Column(Integer, nullable=False, index=True)
+    nutritionist_id = Column(Integer, nullable=False, index=True)
+    url = Column(String(512), nullable=False)
+    file_name = Column(String(255), nullable=True)
+    created_at = Column(
+        DateTime,
+        default=lambda: now_ist().replace(tzinfo=None),
+        nullable=False
+    )
+    updated_at = Column(
+        DateTime,
+        default=lambda: now_ist().replace(tzinfo=None),
+        onupdate=lambda: now_ist().replace(tzinfo=None),
+        nullable=False
+    )

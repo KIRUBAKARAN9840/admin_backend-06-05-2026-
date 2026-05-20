@@ -38,6 +38,7 @@ from app.fittbot_admin_api.nutritionist_sessions.completed_list import router as
 from app.fittbot_admin_api.nutritionist_sessions.diet_templates import router as nutritionist_diet_templates_router
 from app.fittbot_admin_api.nutritionist_sessions.consultation_form import router as nutritionist_consultation_form_router
 from app.fittbot_admin_api.nutritionist_sessions.food_collections import router as nutritionist_food_collections_router
+from app.fittbot_admin_api.nutritionist_sessions.clients_docs import router as nutritionist_clients_docs_router
 
 # ── Collector ───────────────────────────────────────────────────────
 router = APIRouter()
@@ -45,10 +46,11 @@ router = APIRouter()
 @router.get("/api/temp/create_consultation_table")
 async def create_consultation_table():
     from app.models.database import engine
-    from app.models.nutrition_models import NutritionConsultationForm
+    from app.models.nutrition_models import NutritionConsultationForm, ClientDoc
     try:
         NutritionConsultationForm.__table__.create(engine, checkfirst=True)
-        return {"status": "success", "message": "Table created or already exists"}
+        ClientDoc.__table__.create(engine, checkfirst=True)
+        return {"status": "success", "message": "Tables created or already exist"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -90,3 +92,5 @@ router.include_router(nutritionist_completed_list_router)
 router.include_router(nutritionist_diet_templates_router)
 router.include_router(nutritionist_consultation_form_router)
 router.include_router(nutritionist_food_collections_router)
+router.include_router(nutritionist_clients_docs_router)
+
