@@ -54,17 +54,15 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
         mobile_number = request.mobile_number
         password = request.password
 
-        admin = db.query(Admins).filter(Admins.contact_number == mobile_number).first()
+        # Query all admin records matching this mobile number
+        admins = db.query(Admins).filter(Admins.contact_number == mobile_number).all()
 
-        if not admin:
+        if not admins:
             raise HTTPException(status_code=400, detail="You are not Authorised")
 
-        # Determine user type and get user object
-        user = admin
-        user_type = "admin" if admin.role=="admin" else "support"
-        user_id = admin.admin_id
-        stored_password = admin.password
-        role = admin.role
+        # Find an admin record that has a password set (or just use the first one)
+        admin_with_password = next((a for a in admins if a.password), admins[0])
+        stored_password = admin_with_password.password
 
         # Verify password
         if not stored_password:
@@ -73,37 +71,54 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
         if not verify_password(password, stored_password):
             raise HTTPException(status_code=401, detail="Invalid password")
 
-        # Check if TOTP is enabled
-        if user.totp_enabled:
+        # Get all distinct roles for this user
+        roles = list(set(a.role for a in admins if a.role))
+        both_roles = len(roles) > 1
+
+        # Use a primary admin row for tokens & general user info (preferably one with role "admin")
+        primary_admin = next((a for a in admins if a.role == "admin"), admins[0])
+
+        # Check if TOTP is enabled (if any of the user rows have it enabled)
+        totp_enabled = any(a.totp_enabled for a in admins)
+        
+        if totp_enabled:
             # Return different response - TOTP required
             return {
                 "status": 200,
                 "message": "Password verified. TOTP code required.",
                 "require_totp": True,
+                "both_roles": both_roles,
+                "roles": roles,
                 "data": {
                     "mobile_number": mobile_number,
-                    "user_id": admin.admin_id,
-                    "name": admin.name
+                    "user_id": primary_admin.admin_id,
+                    "name": primary_admin.name,
+                    "both_roles": both_roles,
+                    "roles": roles
                 }
             }
 
         # TOTP not enabled - proceed with normal login
-        # Create tokens
-        access_token = create_access_token({"sub": str(admin.admin_id), "role": role, "user_type": "admin"})
-        refresh_token = create_refresh_token({"sub": str(admin.admin_id), "user_type": "admin"})
+        # Create tokens (always use user_type "admin" so cookie matches role authentication check)
+        access_token = create_access_token({"sub": str(primary_admin.admin_id), "role": primary_admin.role, "user_type": "admin"})
+        refresh_token = create_refresh_token({"sub": str(primary_admin.admin_id), "user_type": "admin"})
 
-        # Save refresh token to database
-        user.refresh_token = refresh_token
+        # Save refresh token to database for the primary admin row
+        primary_admin.refresh_token = refresh_token
         db.commit()
 
         response_data = {
             "status": 200,
             "message": "Login successful",
+            "both_roles": both_roles,
+            "roles": roles,
             "data": {
-                "user_id": admin.admin_id,
-                "role": role,
-                "name": admin.name,
-                "user_type": "admin"
+                "user_id": primary_admin.admin_id,
+                "role": primary_admin.role,
+                "name": primary_admin.name,
+                "user_type": "admin",
+                "both_roles": both_roles,
+                "roles": roles
             },
             "access_token": access_token,
             "refresh_token": refresh_token,
@@ -1134,21 +1149,32 @@ async def verify_totp_login(request_data: TOTPVerifyRequest, db: Session = Depen
         totp_code = request_data.totp_code
         backup_code = request_data.backup_code
 
-        # Find user by mobile number
-        admin = db.query(Admins).filter(Admins.contact_number == mobile_number).first()
+        # Query all admin records matching this mobile number
+        admins = db.query(Admins).filter(Admins.contact_number == mobile_number).all()
         employee = None
 
-        if not admin:
+        if not admins:
             employee = db.query(Employees).filter(Employees.contact == mobile_number).first()
 
-        if not admin and not employee:
+        if not admins and not employee:
             raise HTTPException(status_code=404, detail="User not found")
 
-        user = admin if admin else employee
-        user_type = "admin" if admin else "employee"
+        # Determine roles and user row
+        if admins:
+            roles = list(set(a.role for a in admins if a.role))
+            both_roles = len(roles) > 1
+            primary_admin = next((a for a in admins if a.role == "admin"), admins[0])
+            user = primary_admin
+            user_type = "admin"
+        else:
+            roles = ["employee"]
+            both_roles = False
+            user = employee
+            user_type = "employee"
 
-        # Check if TOTP is enabled
-        if not user.totp_enabled:
+        # Check if TOTP is enabled (if any admin row or the employee has it enabled)
+        totp_enabled = any(a.totp_enabled for a in admins) if admins else user.totp_enabled
+        if not totp_enabled:
             raise HTTPException(
                 status_code=400,
                 detail="TOTP is not enabled for this account"
@@ -1206,12 +1232,16 @@ async def verify_totp_login(request_data: TOTPVerifyRequest, db: Session = Depen
         json_response = JSONResponse(content={
             "status": 200,
             "message": "Login successful",
+            "both_roles": both_roles,
+            "roles": roles,
             "data": {
                 "user_id": user.admin_id if user_type == "admin" else user.id,
                 "role": role,
                 "name": user.name,
                 "user_type": user_type,
-                "totp_enabled": True
+                "totp_enabled": True,
+                "both_roles": both_roles,
+                "roles": roles
             },
             "access_token": access_token,
             "refresh_token": refresh_token,
