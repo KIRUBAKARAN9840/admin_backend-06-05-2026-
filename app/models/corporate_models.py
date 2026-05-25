@@ -34,5 +34,13 @@ class CorporateCompany(Base):
     name = Column(String(100), nullable=False)
     address = Column(String(255), nullable=True)
     contact = Column(String(100), nullable=True)
+    alternate_contact = Column(String(100), nullable=True)
+    pincode = Column(String(20), nullable=True)
     website = Column(String(255), nullable=True)
+    zone = Column(String(100), nullable=True)
+    area = Column(String(100), nullable=True)
+    prime_status = Column(String(100), nullable=True)
+    city = Column(String(30), nullable=True)
+    state = Column(String(30), nullable=True)
+
 
