@@ -25,3 +25,14 @@ class CorporateUser(Base):
     
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+class CorporateCompany(Base):
+    __tablename__ = "companies_db"
+    __table_args__ = {"schema": "corparate_dashboard"}
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    address = Column(String(255), nullable=True)
+    contact = Column(String(100), nullable=True)
+    website = Column(String(255), nullable=True)
+

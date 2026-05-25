@@ -21,6 +21,7 @@ logger = logging.getLogger("corporate_auth")
 class LoginRequest(BaseModel):
     mobile_number: str
     password: str
+    role: Optional[str] = None
 
 class SendOTPRequest(BaseModel):
     mobile_number: str
@@ -36,7 +37,12 @@ class ChangePasswordRequest(BaseModel):
 @router.post("/login")
 async def login(request: LoginRequest, db: Session = Depends(get_db)):
     """Unified login for Corporate Admin and Consultant using mobile number"""
-    user = db.query(CorporateUser).filter(CorporateUser.mobile_number == request.mobile_number).first()
+    query = db.query(CorporateUser).filter(CorporateUser.mobile_number == request.mobile_number)
+    if request.role:
+        user = query.filter(CorporateUser.role == request.role).first()
+    else:
+        user = query.first()
+
     
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
