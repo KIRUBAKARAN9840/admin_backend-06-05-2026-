@@ -58,10 +58,7 @@ async def get_companies(
     current_user: dict = Depends(get_current_corporate_user),
     db: AsyncSession = Depends(get_async_db)
 ):
-    """
-    Fetch companies from companies_db in corparate_dashboard schema.
-    Fully async, backend paginated, and query optimized.
-    """
+
     offset = (page - 1) * per_page
 
     # Get overall total count (without search filters)
